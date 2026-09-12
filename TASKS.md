@@ -38,7 +38,7 @@ Not a product phase, but required before Phase 1 can start.
 - [x] `MapNetCoreAI()` endpoint mapping
 
 ### Model Providers (local)
-- [ ] GGUF provider on LLamaSharp (§7.1.2): CPU/CUDA12/Vulkan/Metal backends, context size, GPU layers, batch size, flash attention, KV cache config, chat template auto-detect + override, GBNF structured output, embedding model support
+- [x] GGUF provider on LLamaSharp (§7.1.2): CPU/CUDA12/Vulkan/Metal backends, context size, GPU layers, batch size, flash attention, KV cache config, chat template auto-detect + override, GBNF structured output, embedding model support
 - [ ] ONNX provider on `Microsoft.ML.OnnxRuntimeGenAI` (§7.1.3): CPU/DirectML/CUDA, HF ONNX folder loading (`genai_config.json`), sentence-transformers embedding support
 
 ### Remote Providers

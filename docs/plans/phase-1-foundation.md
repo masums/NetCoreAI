@@ -63,7 +63,7 @@ Conformance: `ModelProviderConformanceTests` run against a local fake OpenAI-com
 ### WP1.6 Model lifecycle manager
 `ModelLifecycleManager : IHostedService`: load/unload with per-model concurrency policy (SingleSlot default / Pool(n) / RejectWhenBusy), idle-unload timer, memory budget accounting (refuse load with `ModelWontFitException`, never crash host), warm-up on startup for models flagged `LoadOnStartup`, readiness gate feeding `/health`, graceful shutdown cancels in-flight generations then releases native handles. Registry status transitions Available → Loading → Loaded → Error.
 
-### WP1.7 GGUF provider (`Backend.Gguf`) (Model Providers, local)
+### WP1.7 GGUF provider (`Backend.Gguf`) (Model Providers, local) — done
 LLamaSharp `LLamaWeights` + `LLamaContext` per slot; `LLamaSharp.Backend.Cpu` referenced by the base package; `NetCoreAI.Backend.Gguf.Cuda12/Vulkan/Metal` are thin packages that only add the native backend package. GGUF metadata reader (own streaming header parser) for architecture, quantization, context length, chat template, embedding flag, used by Import and Hub without loading the model. Chat template applied from metadata via LLamaSharp template support, override per model. GBNF grammar from JSON schema for structured output. Embedding models through `LLamaEmbedder`. Options: context size, GPU layers, batch, flash attention, KV cache type, threads.
 Tests: metadata parser unit tests on hand-built headers; conformance against a < 500 MB fixture (Qwen2.5-0.5B-Instruct Q4_K_M) downloaded on demand, `Category=Model`.
 

@@ -6,6 +6,7 @@
     <ProjectReference Include="../../src/NetCoreAI.Core/NetCoreAI.Core.csproj" />
     <ProjectReference Include="../../src/Storage/NetCoreAI.Storage.Sqlite/NetCoreAI.Storage.Sqlite.csproj" />
     <ProjectReference Include="../../src/VectorStores/NetCoreAI.VectorStore.Sqlite/NetCoreAI.VectorStore.Sqlite.csproj" />
+    <ProjectReference Include="../../src/Backends/NetCoreAI.Backend.Gguf/NetCoreAI.Backend.Gguf.csproj" />
     <ProjectReference Include="../NetCoreAI.Conformance/NetCoreAI.Conformance.csproj" />
   </ItemGroup>
 </Project>

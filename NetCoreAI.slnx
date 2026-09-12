@@ -10,6 +10,8 @@
   </Folder>
   <Folder Name="/src/Backends/">
     <Project Path="src/Backends/NetCoreAI.Backend.Anthropic/NetCoreAI.Backend.Anthropic.csproj" />
+    <Project Path="src/Backends/NetCoreAI.Backend.Gguf.Cuda12/NetCoreAI.Backend.Gguf.Cuda12.csproj" />
+    <Project Path="src/Backends/NetCoreAI.Backend.Gguf.Vulkan/NetCoreAI.Backend.Gguf.Vulkan.csproj" />
     <Project Path="src/Backends/NetCoreAI.Backend.Gguf/NetCoreAI.Backend.Gguf.csproj" />
     <Project Path="src/Backends/NetCoreAI.Backend.Ollama/NetCoreAI.Backend.Ollama.csproj" />
     <Project Path="src/Backends/NetCoreAI.Backend.Onnx/NetCoreAI.Backend.Onnx.csproj" />

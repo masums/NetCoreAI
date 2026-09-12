@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Vulkan native backend for NetCoreAI.Backend.Gguf (AMD, Intel and NVIDIA GPUs). Add this package alongside NetCoreAI.Backend.Gguf and set the execution provider to Vulkan.</Description>
+    <!-- Native binaries only: this package carries no code of its own. -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../NetCoreAI.Backend.Gguf/NetCoreAI.Backend.Gguf.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="LLamaSharp.Backend.Vulkan" />
+  </ItemGroup>
+  <!-- The native backend package injects its binaries as Content; consumers restore it themselves. -->
+  <Target Name="NetCoreAIStripNativeContent" BeforeTargets="_GetPackageFiles;GenerateNuspec">
+    <ItemGroup>
+      <Content Remove="@(Content)" Condition="'%(Extension)' == '.dll' or '%(Extension)' == '.so' or '%(Extension)' == '.dylib' or '%(Extension)' == '.metal'" />
+    </ItemGroup>
+  </Target>
+</Project>
