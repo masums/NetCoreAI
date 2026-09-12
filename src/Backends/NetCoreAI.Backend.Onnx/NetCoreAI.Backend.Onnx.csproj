@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>NetCoreAI ONNX model provider on ONNX Runtime GenAI (CPU; DirectML/CUDA via additional packages) plus ONNX embedding models.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../NetCoreAI.Core/NetCoreAI.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntimeGenAI" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" />
+    <PackageReference Include="Microsoft.ML.Tokenizers" />
+  </ItemGroup>
+</Project>

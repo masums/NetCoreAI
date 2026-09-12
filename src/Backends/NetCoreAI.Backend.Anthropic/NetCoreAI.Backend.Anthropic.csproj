@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>NetCoreAI provider for the Anthropic Messages API (Claude) and Anthropic-compatible endpoints.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../NetCoreAI.Core/NetCoreAI.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Anthropic" />
+  </ItemGroup>
+</Project>

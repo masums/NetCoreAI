@@ -1,0 +1,63 @@
+@using NetCoreAI.Models
+@inject IHardwareProbe Probe
+@inject IModelLifecycleManager Lifecycle
+
+<header class="page-header">
+    <h1>Hardware</h1>
+    <p class="muted">What the "will it fit" check sees. <a href="@Ctx.Url("hardware?refresh=1")">Re-probe</a></p>
+</header>
+
+@if (_hw is null)
+{
+    <p class="empty">Probe failed: @_error</p>
+}
+else
+{
+    <section class="cards">
+        <div class="card stat"><span class="label">Logical cores</span><span class="value">@_hw.LogicalCores</span></div>
+        <div class="card stat"><span class="label">RAM free / total</span><span class="value">@Fmt.Bytes(_hw.AvailableRamBytes)</span><span class="sub">of @Fmt.Bytes(_hw.TotalRamBytes)</span></div>
+        <div class="card stat"><span class="label">VRAM</span><span class="value">@Fmt.Bytes(_hw.TotalVramBytes)</span><span class="sub">@_hw.Gpus.Count GPU(s)</span></div>
+        <div class="card stat"><span class="label">Model budget left</span><span class="value">@Fmt.Bytes(Lifecycle.AvailableBudgetBytes)</span></div>
+    </section>
+    <section class="card">
+        <h2>System</h2>
+        <dl class="kv">
+            <dt>OS</dt><dd>@_hw.OperatingSystem</dd>
+            <dt>Architecture</dt><dd>@_hw.Architecture</dd>
+            <dt>NPU</dt><dd>@(_hw.HasNpu ? "detected" : "not detected")</dd>
+            <dt>Execution providers</dt><dd>@string.Join(", ", _hw.AvailableExecutionProviders)</dd>
+            <dt>Probed</dt><dd>@Fmt.Ago(_hw.ProbedAt)</dd>
+        </dl>
+    </section>
+    <section class="card">
+        <h2>GPUs</h2>
+        @if (_hw.Gpus.Count == 0)
+        {
+            <p class="empty">No GPU detected. CPU inference works; expect lower tokens/sec. NVIDIA GPUs are detected through <code>nvidia-smi</code>.</p>
+        }
+        else
+        {
+            <table>
+                <thead><tr><th>#</th><th>Name</th><th>Vendor</th><th>VRAM total</th><th>VRAM free</th><th>Driver</th><th>Execution providers</th></tr></thead>
+                <tbody>
+                    @foreach (var g in _hw.Gpus)
+                    {
+                        <tr><td>@g.Index</td><td>@g.Name</td><td>@g.Vendor</td><td>@Fmt.Bytes(g.TotalVramBytes)</td><td>@Fmt.Bytes(g.FreeVramBytes)</td><td>@(g.DriverVersion ?? "–")</td><td>@string.Join(", ", g.ExecutionProviders)</td></tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </section>
+}
+
+@code {
+    [Parameter] public DashboardContext Ctx { get; set; } = default!;
+    private HardwareInfo? _hw;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _hw = await Probe.ProbeAsync(refresh: Ctx.CurrentPath.Contains("refresh")); }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+}

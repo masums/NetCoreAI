@@ -1,7 +1,7 @@
 # NetCoreAI — Development Task List
 
-Derived from [docs/requirements/NetCoreAI-Requirements.md](Requirements/NetCoreAI-Requirements.md) §11 Phasing.
-Tracks work on the `develop` branch. Check items off as they land; keep phase order — later phases depend on earlier ones.
+Derived from [docs/requirements/NetCoreAI-Requirements.md](docs/requirements/NetCoreAI-Requirements.md) §11 Phasing.
+Per-phase development plans live in [docs/plans/](docs/plans/). Tracks work on the `develop` branch. Check items off as they land; keep phase order — later phases depend on earlier ones.
 
 ---
 
@@ -9,19 +9,19 @@ Tracks work on the `develop` branch. Check items off as they land; keep phase or
 
 Not a product phase, but required before Phase 1 can start.
 
-- [ ] Resolve Open Question #2 (dashboard tech: Blazor Server vs WASM vs Razor+JS) — blocks Phase 1
-- [ ] Resolve Open Question #3 (default metadata store: SQLite vs shared DB requirement) — blocks Phase 1
-- [ ] Create `NetCoreAI.sln` with `src/` and `tests/` folder structure per README layout
-- [ ] `Directory.Build.props` + `Directory.Packages.props` (central package management), `global.json` pinned to .NET 10
-- [ ] Scaffold empty projects: `NetCoreAI.Abstractions`, `NetCoreAI.Core`, `NetCoreAI.Dashboard`, `NetCoreAI.Client`
-- [ ] Scaffold backend projects: `Backend.Gguf`, `Backend.Onnx`, `Backend.Ollama`, `Backend.OpenAICompatible`, `Backend.Anthropic`
-- [ ] Scaffold `VectorStore.Sqlite`, `Storage.Sqlite`
-- [ ] `NetCoreAI.Conformance` test project (contract tests any provider/vector store must pass)
-- [ ] `NetCoreAI.Core.Tests`, `NetCoreAI.Integration.Tests`
-- [ ] `samples/` solution: `NetCoreAI.Samples.sln`, `Directory.Build.props` pinning package version, local NuGet feed wiring
-- [ ] `MinimalApi` sample (smallest possible host)
-- [ ] CI pipeline: build → test → pack framework → build samples against local feed
-- [ ] License, CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md stubs (README already links these)
+- [x] Resolve Open Question #2 (dashboard tech: Blazor Server vs WASM vs Razor+JS) — blocks Phase 1
+- [x] Resolve Open Question #3 (default metadata store: SQLite vs shared DB requirement) — blocks Phase 1
+- [x] Create `NetCoreAI.slnx` with `src/` and `tests/` folder structure per README layout
+- [x] `Directory.Build.props` + `Directory.Packages.props` (central package management), `global.json` pinned to .NET 10
+- [x] Scaffold empty projects: `NetCoreAI.Abstractions`, `NetCoreAI.Core`, `NetCoreAI.Dashboard`, `NetCoreAI.Client`
+- [x] Scaffold backend projects: `Backend.Gguf`, `Backend.Onnx`, `Backend.Ollama`, `Backend.OpenAICompatible`, `Backend.Anthropic`
+- [x] Scaffold `VectorStore.Sqlite`, `Storage.Sqlite`
+- [x] `NetCoreAI.Conformance` test project (contract tests any provider/vector store must pass)
+- [x] `NetCoreAI.Core.Tests`, `NetCoreAI.Integration.Tests`
+- [x] `samples/` solution: `NetCoreAI.Samples.slnx`, `Directory.Build.props` pinning package version, local NuGet feed wiring
+- [x] `MinimalApi` sample (smallest possible host)
+- [x] CI pipeline: build → test → pack framework → build samples against local feed
+- [x] License, CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md stubs (README already links these)
 
 ---
 
@@ -30,29 +30,29 @@ Not a product phase, but required before Phase 1 can start.
 **Exit criterion:** G1 (install → first local chat ≤ 15 min) and G2 (zero mandatory external deps) demonstrated on Windows + Linux.
 
 ### Abstractions & Core
-- [ ] `IModelProvider` interface (§7.1.1): `SupportedFormats`, `CanLoad`, `LoadAsync`, `UnloadAsync`, `CreateChatClient`, `CreateEmbeddingGenerator`, `GetCapabilities`
-- [ ] Wire all chat/embedding access through `Microsoft.Extensions.AI` (`IChatClient`, `IEmbeddingGenerator`)
-- [ ] Provider registry: DI discovery, selection by format + hardware + user preference
-- [ ] Middleware pipeline: function invocation, logging, OpenTelemetry, optional caching, rate limiting
-- [ ] `AddNetCoreAI()` builder extension + options (`DataDirectory`, `Dashboard.Path`, `Dashboard.Authorization`)
-- [ ] `MapNetCoreAI()` endpoint mapping
+- [x] `IModelProvider` interface (§7.1.1): `SupportedFormats`, `CanLoad`, `LoadAsync`, `UnloadAsync`, `CreateChatClient`, `CreateEmbeddingGenerator`, `GetCapabilities`
+- [x] Wire all chat/embedding access through `Microsoft.Extensions.AI` (`IChatClient`, `IEmbeddingGenerator`)
+- [x] Provider registry: DI discovery, selection by format + hardware + user preference
+- [x] Middleware pipeline: function invocation, logging, OpenTelemetry, optional caching, rate limiting
+- [x] `AddNetCoreAI()` builder extension + options (`DataDirectory`, `Dashboard.Path`, `Dashboard.Authorization`)
+- [x] `MapNetCoreAI()` endpoint mapping
 
 ### Model Providers (local)
 - [ ] GGUF provider on LLamaSharp (§7.1.2): CPU/CUDA12/Vulkan/Metal backends, context size, GPU layers, batch size, flash attention, KV cache config, chat template auto-detect + override, GBNF structured output, embedding model support
 - [ ] ONNX provider on `Microsoft.ML.OnnxRuntimeGenAI` (§7.1.3): CPU/DirectML/CUDA, HF ONNX folder loading (`genai_config.json`), sentence-transformers embedding support
 
 ### Remote Providers
-- [ ] Ollama provider via `OllamaSharp` (§7.1.5): model listing (`/api/tags`), chat/embeddings/tool-calling/streaming
-- [ ] OpenAI-compatible provider: base URL + API key config, presets (OpenAI, Azure OpenAI, vLLM, LM Studio, Groq, DeepSeek, OpenRouter, Together, Mistral, custom)
-- [ ] Anthropic provider: Messages API, tool use, streaming, system prompts, extended context, configurable base URL for compatible proxies
-- [ ] Provider connections: multiple named connections per type, connection test (auth/reachability/model list), health status
-- [ ] Secrets storage via ASP.NET Core Data Protection; env-var override for containers
-- [ ] Routing & fallback: primary + ordered fallback list (local/remote mixed), failover triggers
+- [x] Ollama provider via `OllamaSharp` (§7.1.5): model listing (`/api/tags`), chat/embeddings/tool-calling/streaming
+- [x] OpenAI-compatible provider: base URL + API key config, presets (OpenAI, Azure OpenAI, vLLM, LM Studio, Groq, DeepSeek, OpenRouter, Together, Mistral, custom)
+- [x] Anthropic provider: Messages API, tool use, streaming, system prompts, extended context, configurable base URL for compatible proxies
+- [x] Provider connections: multiple named connections per type, connection test (auth/reachability/model list), health status
+- [x] Secrets storage via ASP.NET Core Data Protection; env-var override for containers
+- [x] Routing & fallback: primary + ordered fallback list (local/remote mixed), failover triggers
 
 ### Hardware & Lifecycle
-- [ ] Hardware probe (§7.1.6): OS, CPU cores, RAM, GPU vendor/VRAM (NVML, DirectML/Vulkan enumeration), NPU presence
-- [ ] "Will it fit" quantization/GPU-split recommendation before download/load
-- [ ] Model lifecycle (§7.1.7): load/unload/warm-up as `IHostedService`, idle unload timeout, concurrency policy (single-slot/pool/reject), multi-model memory budget, graceful shutdown
+- [x] Hardware probe (§7.1.6): OS, CPU cores, RAM, GPU vendor/VRAM (NVML, DirectML/Vulkan enumeration), NPU presence
+- [ ] "Will it fit" quantization/GPU-split recommendation before download/load — *estimator + `/api/hardware/fit` done; pre-download badge needs the Hub (WP1.9)*
+- [x] Model lifecycle (§7.1.7): load/unload/warm-up as `IHostedService`, idle unload timeout, concurrency policy (single-slot/pool/reject), multi-model memory budget, graceful shutdown
 
 ### Model Hub
 - [ ] Hugging Face search/browse (§7.2.1): name/author/task/format/license/size/downloads/likes filters
@@ -62,31 +62,31 @@ Not a product phase, but required before Phase 1 can start.
 - [ ] Import (§7.2.3): local path/upload (chunked), URL import, auto-detect format/arch/quantization/context/chat template
 
 ### Local Model Management
-- [ ] Model registry table (§7.3.1): metadata, status, aliases (`fast`/`quality`/`embed`), per-model default params, tags/notes
-- [ ] `chatClientFactory.Get("alias")` resolution
+- [ ] Model registry table (§7.3.1): metadata, status, aliases (`fast`/`quality`/`embed`), per-model default params, tags/notes — *page + API done; per-model default-parameter editor still API-only*
+- [x] `chatClientFactory.Get("alias")` resolution
 - [ ] Storage management (§7.3.2): configurable data dir, disk usage dashboard, delete + orphan cleanup, quota warnings
 
 ### Chat Playground
-- [ ] Chat UI (§7.4.1): model selection with auto-load, streaming, markdown/code rendering, copy/regenerate/edit-resend/stop
-- [ ] Parameter side panel (temperature, top-p, top-k, max tokens, repeat penalty, seed, system prompt)
-- [ ] Conversation history: persist, rename, delete, export (JSON/Markdown)
-- [ ] Token count / cost / time stats per message
+- [x] Chat UI (§7.4.1): model selection with auto-load, streaming, markdown/code rendering, copy/regenerate/edit-resend/stop
+- [x] Parameter side panel (temperature, top-p, top-k, max tokens, repeat penalty, seed, system prompt)
+- [x] Conversation history: persist, rename, delete, export (JSON/Markdown)
+- [ ] Token count / cost / time stats per message — *tokens + latency done; cost needs per-connection pricing (WP1.12)*
 
 ### Dashboard Shell, Security, Ops (P0 slice)
-- [ ] Dashboard shell (Blazor per chosen tech), mounted at configurable path
-- [ ] Auth: host authentication + configurable authorization policy, default deny
-- [ ] Roles: `NetCoreAI.Admin`, `NetCoreAI.Builder`, `NetCoreAI.User`
-- [ ] Settings pages (§7.11 P0 subset): data directory, default models, concurrency, idle unload, telemetry opt-in, network/proxy/offline mode, provider enable/disable, execution provider preference
-- [ ] Structured logging + OpenTelemetry traces/metrics for generation calls
-- [ ] `/netcoreai/health` health check (models ready, disk space)
-- [ ] Dashboard overview page: loaded models, memory, active sessions, requests/min, error rate, downloads in progress
+- [x] Dashboard shell (Blazor per chosen tech), mounted at configurable path
+- [x] Auth: host authentication + configurable authorization policy, default deny
+- [x] Roles: `NetCoreAI.Admin`, `NetCoreAI.Builder`, `NetCoreAI.User`
+- [ ] Settings pages (§7.11 P0 subset): data directory, default models, concurrency, idle unload, telemetry opt-in, network/proxy/offline mode, provider enable/disable, execution provider preference — *general/network/providers done; default-model pickers land with the Hub*
+- [x] Structured logging + OpenTelemetry traces/metrics for generation calls
+- [x] `/netcoreai/health` health check (models ready, disk space)
+- [ ] Dashboard overview page: loaded models, memory, active sessions, requests/min, error rate, downloads in progress — *loaded models, memory, connections, hardware done; requests/min + error rate need the Meter wiring (WP1.12)*
 
 ### Phase 1 acceptance
-- [ ] A model loaded via any provider is usable through the same `IChatClient` call with no provider-specific code
-- [ ] Adding a new provider package requires no change to Core or Dashboard
-- [ ] Capabilities are queryable; UI hides unsupported features per model
-- [ ] Add OpenAI-compatible, Anthropic, and Ollama connections from the dashboard and chat with each in the playground without restarting the host
-- [ ] Disabling remote providers removes them from selectors and blocks execution with a clear error
+- [x] A model loaded via any provider is usable through the same `IChatClient` call with no provider-specific code
+- [x] Adding a new provider package requires no change to Core or Dashboard
+- [x] Capabilities are queryable; UI hides unsupported features per model
+- [x] Add OpenAI-compatible, Anthropic, and Ollama connections from the dashboard and chat with each in the playground without restarting the host
+- [x] Disabling remote providers removes them from selectors and blocks execution with a clear error
 - [ ] Onboarding timing test: clean Windows + Linux machine, `dotnet add package` → first local chat response ≤ 15 minutes
 
 ---
@@ -105,7 +105,7 @@ Not a product phase, but required before Phase 1 can start.
 - [ ] Chunk metadata: source, doc id, title, page/section, timestamp, custom fields, ACL tags
 - [ ] Background job runner: progress, retry, failure log, cancellable
 - [ ] Deduplication by content hash; re-index only changed documents
-- [ ] `IVectorStore` abstraction + SQLite (sqlite-vec) implementation, zero-config
+- [x] `IVectorStore` abstraction + SQLite (sqlite-vec) implementation, zero-config
 - [ ] Retrieval (§7.5.4): cosine similarity, top-k, score threshold, metadata filters
 - [ ] ACL-filtered retrieval by caller claims
 - [ ] Document chat panel (§7.5.5): citations (source/page/snippet) inline + expandable, "show retrieved chunks" debug view, per-session retrieval settings

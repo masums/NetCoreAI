@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description></Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/NetCoreAI/NetCoreAI.csproj" />
+    <ProjectReference Include="../../src/Backends/NetCoreAI.Backend.OpenAICompatible/NetCoreAI.Backend.OpenAICompatible.csproj" />
+    <ProjectReference Include="../../src/Backends/NetCoreAI.Backend.Anthropic/NetCoreAI.Backend.Anthropic.csproj" />
+    <ProjectReference Include="../../src/Backends/NetCoreAI.Backend.Ollama/NetCoreAI.Backend.Ollama.csproj" />
+    <ProjectReference Include="../NetCoreAI.Conformance/NetCoreAI.Conformance.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+  </ItemGroup>
+</Project>

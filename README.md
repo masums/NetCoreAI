@@ -125,7 +125,7 @@ public class SupportBot(IAgentClient agents)
 └───────────────────────────────────────────────────────────────────┘
 ```
 
-Every provider, vector store, document extractor and data source is a separate project behind a documented interface, with a conformance test suite so contributors can add one without touching Core. See [`docs/requirements/NetCoreAI-Requirements.md`](docs/requirements/NetCoreAI-Requirements.md) for the full specification and [`docs/adr/`](docs/adr/) for design decisions.
+Every provider, vector store, document extractor and data source is a separate project behind a documented interface, with a conformance test suite so contributors can add one without touching Core. See [`docs/requirements/NetCoreAI-Requirements.md`](docs/requirements/NetCoreAI-Requirements.md) for the full specification, [`docs/plans/`](docs/plans/) for the per-phase development plans, [`docs/adr/`](docs/adr/) for design decisions and [`docs/guides/`](docs/guides/) for how-to guides.
 
 ## Supported platforms
 
@@ -156,7 +156,7 @@ The framework and the example applications are kept in **separate solutions** so
 
 ```
 NetCoreAI/
-├── NetCoreAI.sln                     # framework only
+├── NetCoreAI.slnx                     # framework only
 ├── src/
 │   ├── NetCoreAI.Abstractions/
 │   ├── NetCoreAI.Core/
@@ -182,7 +182,7 @@ NetCoreAI/
 │   ├── NetCoreAI.Conformance/        # contract tests any provider/vector store can run
 │   └── NetCoreAI.Integration.Tests/
 ├── samples/
-│   ├── NetCoreAI.Samples.sln         # examples only — references NetCoreAI via NuGet
+│   ├── NetCoreAI.Samples.slnx         # examples only — references NetCoreAI via NuGet
 │   ├── Directory.Build.props         # pins the NetCoreAI package version used by all samples
 │   ├── MinimalApi/                   # smallest possible host
 │   ├── MvcExistingApp/               # existing MVC app exposing its controllers as tools
@@ -201,7 +201,7 @@ NetCoreAI/
 
 Rules that keep the two apart:
 
-- `NetCoreAI.sln` contains only `src/` and `tests/`. It has no reference to anything under `samples/`.
+- `NetCoreAI.slnx` contains only `src/` and `tests/`. It has no reference to anything under `samples/`.
 - Samples never use `ProjectReference` into `src/`. They pull `NetCoreAI.*` packages from NuGet.org, or from the local feed produced by `dotnet pack` during development.
 - Samples have their own `Directory.Build.props` that sets the package version, so bumping one line upgrades every example.
 - CI builds and tests the framework first, packs it to `artifacts/packages/`, then builds the samples against that feed — so a sample that breaks is caught before release, but sample breakage never blocks a framework build.
@@ -213,9 +213,9 @@ Rules that keep the two apart:
 ```bash
 git clone https://github.com/netcoreai/NetCoreAI.git
 cd NetCoreAI
-dotnet build NetCoreAI.sln
-dotnet test  NetCoreAI.sln        # default suite needs no secrets; downloads a <500 MB test model on first run
-dotnet pack  NetCoreAI.sln -c Release -o artifacts/packages
+dotnet build NetCoreAI.slnx
+dotnet test --solution NetCoreAI.slnx   # default suite needs no secrets; downloads a <500 MB test model on first run
+dotnet pack  NetCoreAI.slnx -c Release -o artifacts/packages
 ```
 
 **Samples** (against the packages you just packed, or against NuGet.org)
@@ -223,7 +223,7 @@ dotnet pack  NetCoreAI.sln -c Release -o artifacts/packages
 ```bash
 cd samples
 dotnet nuget add source ../artifacts/packages --name netcoreai-local   # only for local development
-dotnet build NetCoreAI.Samples.sln
+dotnet build NetCoreAI.Samples.slnx
 cd MinimalApi && dotnet run
 # open https://localhost:5001/netcoreai
 ```

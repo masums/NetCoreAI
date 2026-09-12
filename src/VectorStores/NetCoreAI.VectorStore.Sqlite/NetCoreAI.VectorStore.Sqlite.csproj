@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>NetCoreAI default zero-config vector store on SQLite (optional sqlite-vec acceleration).</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../NetCoreAI.Core/NetCoreAI.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+  </ItemGroup>
+</Project>

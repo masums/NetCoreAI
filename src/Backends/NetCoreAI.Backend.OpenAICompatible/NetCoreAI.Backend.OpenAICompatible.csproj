@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>NetCoreAI provider for OpenAI, Azure OpenAI and any OpenAI-compatible server (vLLM, LM Studio, Groq, DeepSeek, OpenRouter, Together, Mistral...).</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../NetCoreAI.Core/NetCoreAI.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
+    <PackageReference Include="OpenAI" />
+  </ItemGroup>
+</Project>

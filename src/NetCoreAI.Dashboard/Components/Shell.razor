@@ -1,0 +1,52 @@
+@inject EmbeddedAssets EmbeddedAssets
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@Ctx.Title</title>
+    <link rel="icon" href="@Ctx.Asset("logo.svg")" />
+    <link rel="stylesheet" href="@Ctx.Asset($"app.css?v={EmbeddedAssets.Version}")" />
+    <base href="@(Ctx.BasePath.TrimEnd('/') + "/")" />
+</head>
+<body data-base="@Ctx.BasePath">
+    <div class="app">
+        <aside class="sidebar">
+            <a class="brand" href="@Ctx.Url("")"><img src="@Ctx.Asset("logo.svg")" alt="" width="28" height="28" /> <span>@Ctx.Title</span></a>
+            <nav>
+                <a href="@Ctx.Url("")" class="@(Ctx.IsActive("") ? "active" : "")">Overview</a>
+                <a href="@Ctx.Url("chat")" class="@(Ctx.IsActive("chat") ? "active" : "")">Chat</a>
+                <a href="@Ctx.Url("models")" class="@(Ctx.IsActive("models") ? "active" : "")">Models</a>
+                <a href="@Ctx.Url("providers")" class="@(Ctx.IsActive("providers") ? "active" : "")">Providers</a>
+                <span class="nav-group">Coming soon</span>
+                <a class="disabled">Model Hub</a>
+                <a class="disabled">Knowledge</a>
+                <a class="disabled">Tools</a>
+                <a class="disabled">Agents</a>
+                <span class="nav-group">System</span>
+                <a href="@Ctx.Url("hardware")" class="@(Ctx.IsActive("hardware") ? "active" : "")">Hardware</a>
+                <a href="@Ctx.Url("settings")" class="@(Ctx.IsActive("settings") ? "active" : "")">Settings</a>
+                <a href="@Ctx.Url("health")" target="_blank">Health ↗</a>
+            </nav>
+            <div class="sidebar-footer">
+                @if (Ctx.UserName is not null)
+                {
+                    <span title="Signed in">@Ctx.UserName</span>
+                }
+                <span class="muted">v@(EmbeddedAssets.Version)</span>
+            </div>
+        </aside>
+        <main class="content">
+            <DynamicComponent Type="PageType" Parameters="PageParameters" />
+        </main>
+    </div>
+    <div id="toast" class="toast" hidden></div>
+    <script src="@Ctx.Asset($"app.js?v={EmbeddedAssets.Version}")"></script>
+</body>
+</html>
+
+@code {
+    [Parameter, EditorRequired] public DashboardContext Ctx { get; set; } = default!;
+    [Parameter, EditorRequired] public Type PageType { get; set; } = default!;
+    [Parameter] public IDictionary<string, object?>? PageParameters { get; set; }
+}

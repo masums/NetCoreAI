@@ -1,0 +1,94 @@
+@using NetCoreAI.Models
+@using NetCoreAI.Providers
+@inject IModelRegistry Registry
+@inject IModelLifecycleManager Lifecycle
+@inject IHardwareProbe Hardware
+@inject IProviderRegistry Providers
+@inject IMetadataStore Store
+
+<header class="page-header">
+    <h1>Overview</h1>
+    <p class="muted">What is running inside this host right now.</p>
+</header>
+
+<section class="cards">
+    <div class="card stat"><span class="label">Models registered</span><span class="value">@_models.Count</span></div>
+    <div class="card stat"><span class="label">Loaded</span><span class="value">@_loaded.Count</span></div>
+    <div class="card stat"><span class="label">Provider connections</span><span class="value">@_connections</span></div>
+    <div class="card stat"><span class="label">Memory in use</span><span class="value">@Fmt.Bytes(_loaded.Sum(l => l.MemoryBytes))</span><span class="sub">budget left @Fmt.Bytes(Lifecycle.AvailableBudgetBytes)</span></div>
+</section>
+
+<section class="grid-2">
+    <div class="card">
+        <h2>Providers</h2>
+        @if (Providers.All.Count == 0)
+        {
+            <p class="empty">No backend registered. Add one in <code>Program.cs</code>: <code>.AddOllamaBackend()</code>, <code>.AddOpenAICompatibleBackend()</code>, <code>.AddAnthropicBackend()</code>, <code>.AddGgufBackend()</code>.</p>
+        }
+        else
+        {
+            <table>
+                <thead><tr><th>Provider</th><th>Kind</th><th>Status</th></tr></thead>
+                <tbody>
+                    @foreach (var p in Providers.All)
+                    {
+                        <tr><td>@p.DisplayName <span class="muted">(@p.Id)</span></td><td>@p.Kind</td><td>@(Providers.IsEnabled(p) ? "enabled" : "disabled")</td></tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+    <div class="card">
+        <h2>Hardware</h2>
+        @if (_hw is null)
+        {
+            <p class="empty">Probing…</p>
+        }
+        else
+        {
+            <dl class="kv">
+                <dt>OS</dt><dd>@_hw.OperatingSystem (@_hw.Architecture)</dd>
+                <dt>CPU</dt><dd>@_hw.LogicalCores logical cores</dd>
+                <dt>RAM</dt><dd>@Fmt.Bytes(_hw.AvailableRamBytes) free of @Fmt.Bytes(_hw.TotalRamBytes)</dd>
+                <dt>GPU</dt><dd>@(_hw.Gpus.Count == 0 ? "none detected" : string.Join(", ", _hw.Gpus.Select(g => $"{g.Name} ({Fmt.Bytes(g.TotalVramBytes ?? 0)})")))</dd>
+            </dl>
+            <a class="btn small" href="@Ctx.Url("hardware")">Details</a>
+        }
+    </div>
+</section>
+
+<section class="card">
+    <h2>Loaded models</h2>
+    @if (_loaded.Count == 0)
+    {
+        <p class="empty">Nothing loaded. Go to <a href="@Ctx.Url("models")">Models</a> to load one, or just start a <a href="@Ctx.Url("chat")">chat</a>: models load on first use.</p>
+    }
+    else
+    {
+        <table>
+            <thead><tr><th>Model</th><th>Provider</th><th>Memory</th><th>Loaded</th><th>Last used</th></tr></thead>
+            <tbody>
+                @foreach (var l in _loaded)
+                {
+                    <tr><td>@l.Descriptor.Name</td><td>@l.ProviderId</td><td>@Fmt.Bytes(l.MemoryBytes)</td><td>@Fmt.Ago(l.LoadedAt)</td><td>@Fmt.Ago(l.LastUsedAt)</td></tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+@code {
+    [Parameter] public DashboardContext Ctx { get; set; } = default!;
+    private IReadOnlyList<ModelEntry> _models = [];
+    private IReadOnlyCollection<LoadedModel> _loaded = [];
+    private int _connections;
+    private HardwareInfo? _hw;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _models = await Registry.ListAsync();
+        _loaded = Lifecycle.Loaded;
+        _connections = (await Store.Connections.ListAsync()).Count;
+        try { _hw = await Hardware.ProbeAsync(); } catch (Exception) { }
+    }
+}
