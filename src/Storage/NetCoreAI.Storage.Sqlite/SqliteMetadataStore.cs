@@ -22,6 +22,8 @@ public sealed class SqliteMetadataStore : IMetadataStore
         Sessions = new SessionStore(factory);
         Settings = new SettingsStore(factory);
         Downloads = new DownloadStore(factory);
+        Knowledge = new SqliteKnowledgeStore(factory);
+        Jobs = new SqliteJobStore(factory);
     }
 
     public IModelStore Models { get; }
@@ -30,6 +32,8 @@ public sealed class SqliteMetadataStore : IMetadataStore
     public IChatSessionStore Sessions { get; }
     public ISettingsStore Settings { get; }
     public IDownloadStore Downloads { get; }
+    public IKnowledgeStore Knowledge { get; }
+    public IJobStore Jobs { get; }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
@@ -65,8 +69,12 @@ public sealed class SqliteMetadataStore : IMetadataStore
         }
     }
 
-    private static string Ser<T>(T value) => JsonSerializer.Serialize(value, NetCoreAIDbContext.Json);
-    private static T De<T>(string json) => JsonSerializer.Deserialize<T>(json, NetCoreAIDbContext.Json)!;
+    private static string Ser<T>(T value) => Serialize(value);
+    private static T De<T>(string json) => Deserialize<T>(json);
+
+    // Shared with the knowledge and job stores, which live in their own file.
+    internal static string Serialize<T>(T value) => JsonSerializer.Serialize(value, NetCoreAIDbContext.Json);
+    internal static T Deserialize<T>(string json) => JsonSerializer.Deserialize<T>(json, NetCoreAIDbContext.Json)!;
 
     private sealed class ModelStore(IDbContextFactory<NetCoreAIDbContext> f) : IModelStore
     {

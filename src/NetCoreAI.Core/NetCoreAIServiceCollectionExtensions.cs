@@ -7,6 +7,8 @@ using Microsoft.Extensions.Options;
 using NetCoreAI.Clients;
 using NetCoreAI.Hardware;
 using NetCoreAI.Hub;
+using NetCoreAI.Jobs;
+using NetCoreAI.Knowledge;
 using NetCoreAI.Models;
 using NetCoreAI.Providers;
 using NetCoreAI.Security;
@@ -90,6 +92,16 @@ public static class NetCoreAIServiceCollectionExtensions
         services.TryAddSingleton<IModelImporter, ModelImporter>();
         services.TryAddSingleton<IModelUploadService, ModelUploadService>();
         services.TryAddSingleton<IStorageService, StorageService>();
+
+        // Knowledge: background jobs, the chunkers, and the extract-chunk-embed-store pipeline.
+        services.TryAddSingleton<BackgroundJobRunner>();
+        services.TryAddSingleton<IBackgroundJobRunner>(sp => sp.GetRequiredService<BackgroundJobRunner>());
+        services.AddHostedService(sp => sp.GetRequiredService<BackgroundJobRunner>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IChunker, RecursiveStructureChunker>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IChunker, FixedSizeChunker>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IChunker, SentenceChunker>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IChunker, RowChunker>());
+        services.TryAddSingleton<IIngestionPipeline, IngestionPipeline>();
 
         // Live traffic for the overview page, and per-call cost from connection pricing.
         services.TryAddSingleton<IUsageTracker, UsageTracker>();

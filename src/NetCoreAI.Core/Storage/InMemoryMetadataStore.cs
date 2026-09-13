@@ -15,6 +15,10 @@ public sealed class InMemoryMetadataStore : IMetadataStore
     private readonly ConcurrentDictionary<string, List<ChatMessageRecord>> _messages = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, string> _settings = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, DownloadJob> _downloads = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, KnowledgeBase> _knowledgeBases = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, DataSourceDefinition> _dataSources = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, KnowledgeDocument> _documents = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, JobRecord> _jobs = new(StringComparer.OrdinalIgnoreCase);
 
     public InMemoryMetadataStore()
     {
@@ -24,6 +28,8 @@ public sealed class InMemoryMetadataStore : IMetadataStore
         Sessions = new SessionStore(_sessions, _messages);
         Settings = new SettingsStore(_settings);
         Downloads = new DownloadStore(_downloads);
+        Knowledge = new KnowledgeStore(_knowledgeBases, _dataSources, _documents);
+        Jobs = new JobStore(_jobs);
     }
 
     public IModelStore Models { get; }
@@ -32,6 +38,8 @@ public sealed class InMemoryMetadataStore : IMetadataStore
     public IChatSessionStore Sessions { get; }
     public ISettingsStore Settings { get; }
     public IDownloadStore Downloads { get; }
+    public IKnowledgeStore Knowledge { get; }
+    public IJobStore Jobs { get; }
 
     public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
@@ -103,5 +111,112 @@ public sealed class InMemoryMetadataStore : IMetadataStore
         public Task<DownloadJob?> GetAsync(string id, CancellationToken ct = default) => Task.FromResult(d.GetValueOrDefault(id));
         public Task UpsertAsync(DownloadJob job, CancellationToken ct = default) { d[job.Id] = job; return Task.CompletedTask; }
         public Task DeleteAsync(string id, CancellationToken ct = default) { d.TryRemove(id, out _); return Task.CompletedTask; }
+    }
+
+    private sealed class KnowledgeStore(
+        ConcurrentDictionary<string, KnowledgeBase> bases,
+        ConcurrentDictionary<string, DataSourceDefinition> sources,
+        ConcurrentDictionary<string, KnowledgeDocument> documents) : IKnowledgeStore
+    {
+        public Task<IReadOnlyList<KnowledgeBase>> ListAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<KnowledgeBase>>([.. bases.Values.OrderBy(k => k.Name, StringComparer.OrdinalIgnoreCase)]);
+
+        public Task<KnowledgeBase?> GetAsync(string id, CancellationToken ct = default) => Task.FromResult(bases.GetValueOrDefault(id));
+
+        public Task UpsertAsync(KnowledgeBase knowledgeBase, CancellationToken ct = default)
+        {
+            bases[knowledgeBase.Id] = knowledgeBase;
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteAsync(string id, CancellationToken ct = default)
+        {
+            bases.TryRemove(id, out _);
+
+            // Sources and documents belong to the base; leaving them would orphan rows nothing can reach.
+            foreach (var source in sources.Values.Where(s => s.KnowledgeBaseId == id).ToList())
+            {
+                sources.TryRemove(source.Id, out _);
+            }
+
+            foreach (var document in documents.Values.Where(d => d.KnowledgeBaseId == id).ToList())
+            {
+                documents.TryRemove(document.Id, out _);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<DataSourceDefinition>> ListSourcesAsync(string knowledgeBaseId, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<DataSourceDefinition>>([.. sources.Values.Where(s => s.KnowledgeBaseId == knowledgeBaseId).OrderBy(s => s.CreatedAt)]);
+
+        public Task<DataSourceDefinition?> GetSourceAsync(string id, CancellationToken ct = default) => Task.FromResult(sources.GetValueOrDefault(id));
+
+        public Task UpsertSourceAsync(DataSourceDefinition source, CancellationToken ct = default)
+        {
+            sources[source.Id] = source;
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteSourceAsync(string id, CancellationToken ct = default)
+        {
+            sources.TryRemove(id, out _);
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<KnowledgeDocument>> ListDocumentsAsync(string knowledgeBaseId, string? dataSourceId = null, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<KnowledgeDocument>>([.. documents.Values
+                .Where(d => d.KnowledgeBaseId == knowledgeBaseId && (dataSourceId is null || d.DataSourceId == dataSourceId))
+                .OrderByDescending(d => d.IngestedAt)]);
+
+        public Task<KnowledgeDocument?> GetDocumentAsync(string id, CancellationToken ct = default) => Task.FromResult(documents.GetValueOrDefault(id));
+
+        public Task<KnowledgeDocument?> FindByHashAsync(string knowledgeBaseId, string contentHash, CancellationToken ct = default) =>
+            Task.FromResult(documents.Values.FirstOrDefault(d => d.KnowledgeBaseId == knowledgeBaseId && d.ContentHash == contentHash));
+
+        public Task UpsertDocumentAsync(KnowledgeDocument document, CancellationToken ct = default)
+        {
+            documents[document.Id] = document;
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteDocumentAsync(string id, CancellationToken ct = default)
+        {
+            documents.TryRemove(id, out _);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class JobStore(ConcurrentDictionary<string, JobRecord> jobs) : IJobStore
+    {
+        public Task<IReadOnlyList<JobRecord>> ListAsync(string? targetId = null, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<JobRecord>>([.. jobs.Values
+                .Where(j => targetId is null || j.TargetId == targetId)
+                .OrderByDescending(j => j.CreatedAt)]);
+
+        public Task<JobRecord?> GetAsync(string id, CancellationToken ct = default) => Task.FromResult(jobs.GetValueOrDefault(id));
+
+        public Task UpsertAsync(JobRecord job, CancellationToken ct = default)
+        {
+            jobs[job.Id] = job;
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteAsync(string id, CancellationToken ct = default)
+        {
+            jobs.TryRemove(id, out _);
+            return Task.CompletedTask;
+        }
+
+        public Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default)
+        {
+            var stale = jobs.Values.Where(j => j.IsTerminal && j.CreatedAt < olderThan).ToList();
+            foreach (var job in stale)
+            {
+                jobs.TryRemove(job.Id, out _);
+            }
+
+            return Task.FromResult(stale.Count);
+        }
     }
 }

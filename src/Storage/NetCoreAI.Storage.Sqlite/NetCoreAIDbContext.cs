@@ -19,6 +19,10 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
     public DbSet<SettingRow> Settings => Set<SettingRow>();
     public DbSet<DownloadRow> Downloads => Set<DownloadRow>();
     public DbSet<InstanceRow> Instances => Set<InstanceRow>();
+    public DbSet<KnowledgeBaseRow> KnowledgeBases => Set<KnowledgeBaseRow>();
+    public DbSet<DataSourceRow> DataSources => Set<DataSourceRow>();
+    public DbSet<DocumentRow> Documents => Set<DocumentRow>();
+    public DbSet<JobRow> Jobs => Set<JobRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -46,6 +50,29 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
         modelBuilder.Entity<SettingRow>(e => { e.ToTable("Settings"); e.HasKey(x => x.Key); });
         modelBuilder.Entity<DownloadRow>(e => { e.ToTable("Downloads"); e.HasKey(x => x.Id); });
         modelBuilder.Entity<InstanceRow>(e => { e.ToTable("Instances"); e.HasKey(x => x.Id); });
+        modelBuilder.Entity<KnowledgeBaseRow>(e => { e.ToTable("KnowledgeBases"); e.HasKey(x => x.Id); });
+        modelBuilder.Entity<DataSourceRow>(e =>
+        {
+            e.ToTable("DataSources");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.KnowledgeBaseId);
+        });
+        modelBuilder.Entity<DocumentRow>(e =>
+        {
+            e.ToTable("Documents");
+            e.HasKey(x => x.Id);
+
+            // Re-ingest checks "have I seen this content already?" per base, which is this index.
+            e.HasIndex(x => new { x.KnowledgeBaseId, x.ContentHash });
+            e.HasIndex(x => new { x.KnowledgeBaseId, x.DataSourceId });
+        });
+        modelBuilder.Entity<JobRow>(e =>
+        {
+            e.ToTable("Jobs");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.TargetId, x.CreatedAtTicks });
+            e.HasIndex(x => x.State);
+        });
     }
 }
 
@@ -112,4 +139,45 @@ public sealed class InstanceRow
     public string Id { get; set; } = "";
     public string MachineName { get; set; } = "";
     public long LastSeenAtTicks { get; set; }
+}
+
+public sealed class KnowledgeBaseRow
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string EmbeddingModel { get; set; } = "";
+    public long CreatedAtTicks { get; set; }
+    public string Json { get; set; } = "";
+}
+
+public sealed class DataSourceRow
+{
+    public string Id { get; set; } = "";
+    public string KnowledgeBaseId { get; set; } = "";
+    public string Type { get; set; } = "";
+    public bool Enabled { get; set; }
+    public string Json { get; set; } = "";
+}
+
+public sealed class DocumentRow
+{
+    public string Id { get; set; } = "";
+    public string KnowledgeBaseId { get; set; } = "";
+    public string? DataSourceId { get; set; }
+    public string Title { get; set; } = "";
+
+    /// <summary>SHA-256 of the extracted text: how re-ingest decides a document has not changed.</summary>
+    public string? ContentHash { get; set; }
+    public long IngestedAtTicks { get; set; }
+    public string Json { get; set; } = "";
+}
+
+public sealed class JobRow
+{
+    public string Id { get; set; } = "";
+    public string Type { get; set; } = "";
+    public string? TargetId { get; set; }
+    public string State { get; set; } = "";
+    public long CreatedAtTicks { get; set; }
+    public string Json { get; set; } = "";
 }

@@ -14,10 +14,10 @@ KnowledgeClient (IKnowledgeClient): IngestAsync / SearchAsync / DeleteAsync, in-
 Abstractions added: `IVectorStore` (`UpsertAsync`, `SearchAsync(vector, k, filter)`, `DeleteByDocumentAsync`, `EnsureCollectionAsync(dim, metric)`), `VectorRecord`, `IDocumentExtractor` (`CanHandle(contentType/extension)`, `ExtractAsync` → `ExtractedDocument{Sections[page, heading, text]}`), `IChunker`, `IDataSource` + `IDataSourceFactory`, `IKnowledgeSource` (host push), `IKnowledgeClient`, `IBackgroundJobRunner`, `Citation`, `RetrievalOptions`, `AclTag`.
 
 ## Work packages
-### WP2.1 Vector store abstraction + SQLite implementation
+### WP2.1 Vector store abstraction + SQLite implementation — done
 `IVectorStore`; `VectorStore.Sqlite` using `Microsoft.Data.Sqlite` with a pure-.NET brute-force cosine search over a float BLOB column as the zero-config baseline (fine at KB sizes up to roughly 200k chunks), plus optional `sqlite-vec` extension loading when the native library is present. One collection per KB; metadata as JSON column with indexed `document_id` and `acl_tags`. `VectorStoreConformanceTests` (upsert/search/delete/filter/ACL/dimension mismatch). Add metadata tables `KnowledgeBases`, `DataSources`, `Documents`, `Jobs` to Storage.
 
-### WP2.2 Ingestion pipeline core
+### WP2.2 Ingestion pipeline core — done
 `IngestionPipeline` composed from DI-registered stages; `IBackgroundJobRunner` (channel-based, persisted `Jobs` rows, progress %, retry with backoff, failure log, cancellation, survives restart by re-queueing `Running` jobs at startup); content-hash dedup (`Documents.ContentHash`), re-index only changed docs; chunkers: `FixedSizeChunker` (tokens + overlap, tokenizer from `Microsoft.ML.Tokenizers`), `RecursiveStructureChunker` (headings → paragraphs → sentences), `SentenceChunker`, `RowChunker`; chunk metadata record. Unit tests with golden files.
 
 ### WP2.3 Extractors (file upload source)

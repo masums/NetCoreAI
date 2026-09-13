@@ -100,11 +100,11 @@ Not a product phase, but required before Phase 1 can start.
 - [ ] Data source: SQL database — connection via host `DbContext`/connection string, table/view/query selection, column mapping, scheduled sync, row-level change detection
 - [ ] Data source: REST API endpoint — reuse Tool definitions (Phase 3 dependency: stub minimal tool-call mechanism or sequence after §7.6 basics), JSON-path → document mapping, schedule
 - [ ] Data source: host-provided `IKnowledgeSource` for programmatic push
-- [ ] Ingestion pipeline (§7.5.3): extract → clean → chunk → embed → store stages, each swappable via interface
-- [ ] Chunking strategies: fixed+overlap, recursive by structure, sentence-aware, per-row tabular
-- [ ] Chunk metadata: source, doc id, title, page/section, timestamp, custom fields, ACL tags
-- [ ] Background job runner: progress, retry, failure log, cancellable
-- [ ] Deduplication by content hash; re-index only changed documents
+- [x] Ingestion pipeline (§7.5.3): extract → clean → chunk → embed → store stages, each swappable via interface
+- [x] Chunking strategies: fixed+overlap, recursive by structure, sentence-aware, per-row tabular
+- [x] Chunk metadata: source, doc id, title, page/section, timestamp, custom fields, ACL tags
+- [x] Background job runner: progress, retry, failure log, cancellable
+- [x] Deduplication by content hash; re-index only changed documents
 - [x] `IVectorStore` abstraction + SQLite (sqlite-vec) implementation, zero-config
 - [ ] Retrieval (§7.5.4): cosine similarity, top-k, score threshold, metadata filters
 - [ ] ACL-filtered retrieval by caller claims

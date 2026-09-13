@@ -23,6 +23,10 @@ public interface IMetadataStore
     ISettingsStore Settings { get; }
 
     IDownloadStore Downloads { get; }
+
+    IKnowledgeStore Knowledge { get; }
+
+    IJobStore Jobs { get; }
 }
 
 public interface IModelStore
@@ -73,4 +77,41 @@ public interface IDownloadStore
     Task<DownloadJob?> GetAsync(string id, CancellationToken cancellationToken = default);
     Task UpsertAsync(DownloadJob job, CancellationToken cancellationToken = default);
     Task DeleteAsync(string id, CancellationToken cancellationToken = default);
+}
+
+/// <summary>Knowledge bases, their data sources and the documents ingested into them.</summary>
+public interface IKnowledgeStore
+{
+    Task<IReadOnlyList<KnowledgeBase>> ListAsync(CancellationToken cancellationToken = default);
+    Task<KnowledgeBase?> GetAsync(string id, CancellationToken cancellationToken = default);
+    Task UpsertAsync(KnowledgeBase knowledgeBase, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes the base, its sources and its document rows. The vector collection is dropped separately.</summary>
+    Task DeleteAsync(string id, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<DataSourceDefinition>> ListSourcesAsync(string knowledgeBaseId, CancellationToken cancellationToken = default);
+    Task<DataSourceDefinition?> GetSourceAsync(string id, CancellationToken cancellationToken = default);
+    Task UpsertSourceAsync(DataSourceDefinition source, CancellationToken cancellationToken = default);
+    Task DeleteSourceAsync(string id, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<KnowledgeDocument>> ListDocumentsAsync(string knowledgeBaseId, string? dataSourceId = null, CancellationToken cancellationToken = default);
+    Task<KnowledgeDocument?> GetDocumentAsync(string id, CancellationToken cancellationToken = default);
+
+    /// <summary>Finds a document by its content hash, which is how re-ingest skips unchanged content.</summary>
+    Task<KnowledgeDocument?> FindByHashAsync(string knowledgeBaseId, string contentHash, CancellationToken cancellationToken = default);
+
+    Task UpsertDocumentAsync(KnowledgeDocument document, CancellationToken cancellationToken = default);
+    Task DeleteDocumentAsync(string id, CancellationToken cancellationToken = default);
+}
+
+/// <summary>Persistence for background jobs, so progress and failures survive a restart.</summary>
+public interface IJobStore
+{
+    Task<IReadOnlyList<JobRecord>> ListAsync(string? targetId = null, CancellationToken cancellationToken = default);
+    Task<JobRecord?> GetAsync(string id, CancellationToken cancellationToken = default);
+    Task UpsertAsync(JobRecord job, CancellationToken cancellationToken = default);
+    Task DeleteAsync(string id, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes terminal jobs older than the cutoff, so the table does not grow without bound.</summary>
+    Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken cancellationToken = default);
 }
