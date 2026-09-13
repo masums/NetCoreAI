@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using NetCoreAI.Dashboard.Api;
 using NetCoreAI.Dashboard.Rendering;
+using NetCoreAI.Hub;
 
 namespace NetCoreAI;
 
@@ -52,8 +53,28 @@ public static class NetCoreAIEndpointRouteBuilderExtensions
 
         PagesApi.Map(group);
         var api = group.MapGroup("/api");
+
+        // One place turns a NetCoreAI failure into an HTTP response. Without it these surface as unhandled
+        // exceptions, which means a 500 and a stack trace where the caller should have been told what to fix.
+        api.AddEndpointFilter(async (context, next) =>
+        {
+            try
+            {
+                return await next(context);
+            }
+            catch (OfflineModeException ex)
+            {
+                // The request is valid; the host is configured not to allow it right now.
+                return Results.Problem(ex.Message, statusCode: StatusCodes.Status409Conflict, title: "Offline mode");
+            }
+            catch (NetCoreAIException ex)
+            {
+                return Results.Problem(ex.Message, statusCode: StatusCodes.Status400BadRequest, title: "NetCoreAI");
+            }
+        });
         HardwareApi.Map(api);
         ModelsApi.Map(api);
+        HubApi.Map(api);
         ProvidersApi.Map(api);
         ChatApi.Map(api);
         SettingsApi.Map(api);

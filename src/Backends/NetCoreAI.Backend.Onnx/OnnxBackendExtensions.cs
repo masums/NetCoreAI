@@ -1,3 +1,5 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using NetCoreAI.Backends.Onnx;
 
 namespace NetCoreAI;
@@ -13,6 +15,9 @@ public static class OnnxBackendExtensions
     public static NetCoreAIBuilder AddOnnxBackend(this NetCoreAIBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
+
+        // Lets import and the download manager identify ONNX folders without Core knowing the format.
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IModelFormatDetector, OnnxFormatDetector>());
         return builder.AddProvider<OnnxModelProvider>();
     }
 }

@@ -64,7 +64,116 @@
       case 'test-connection': return guarded(async () => { const r = await call('POST', `providers/connections/${encodeURIComponent(id)}/test`); toast(`${r.health}: ${r.message} (${r.latencyMs} ms)`, !r.success); setTimeout(reload, 1500); }, btn);
       case 'sync-models': return guarded(async () => { const r = await call('POST', `providers/connections/${encodeURIComponent(id)}/models`); toast(`Synced ${r.length} model(s) into the registry.`); setTimeout(reload, 1200); }, btn);
       case 'delete-connection': return confirm(`Remove connection "${name}" and its models?`) && guarded(async () => { await call('DELETE', `providers/connections/${encodeURIComponent(id)}`); reload(); }, btn);
+      case 'hub-download': {
+        const { repo, source, files } = btn.dataset;
+        return guarded(async () => {
+          const job = await call('POST', 'downloads', { repoId: repo, source, files: files.split('|').filter(Boolean), name: btn.dataset.name });
+          toast(`Downloading ${btn.dataset.name || repo}...`);
+          watchDownload(job.id);
+        }, btn);
+      }
+      case 'download-pause': return guarded(async () => { await call('POST', `downloads/${encodeURIComponent(id)}/pause`); reload(); }, btn);
+      case 'download-resume': return guarded(async () => { await call('POST', `downloads/${encodeURIComponent(id)}/resume`); watchDownload(id); }, btn);
+      case 'hub-back': return location.reload();
+      case 'download-cancel': return confirm('Cancel this download and discard its partial files?') && guarded(async () => { await call('DELETE', `downloads/${encodeURIComponent(id)}`); reload(); }, btn);
     }
+  });
+
+  // ---------- model hub ----------
+  const fmtBytes = (n) => {
+    if (n === null || n === undefined) return '-';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0, b = n;
+    while (b >= 1024 && i < units.length - 1) { b /= 1024; i++; }
+    return `${b.toFixed(b < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
+  };
+  const fitBadge = (fit) => {
+    switch (fit && fit.verdict) {
+      case 'Fits': return '<span class="status loaded">fits</span>';
+      case 'Tight': return '<span class="status loading">tight</span>';
+      case 'WontFit': return '<span class="status error">too big</span>';
+      default: return '<span class="muted">unknown</span>';
+    }
+  };
+
+  // Polls one job until it settles, so the row reflects reality without a manual refresh.
+  function watchDownload(id) {
+    if (!id) return;
+    const tick = async () => {
+      try {
+        const job = await call('GET', `downloads/${encodeURIComponent(id)}`);
+        const row = $(`#downloads-table tr[data-id="${id}"]`);
+        if (row) {
+          const bar = row.querySelector('progress');
+          if (bar) { bar.value = job.bytesDone; bar.max = job.bytesTotal || 1; }
+          const small = row.querySelector('td:nth-child(2) small');
+          if (small) small.textContent = `${fmtBytes(job.bytesDone)} of ${fmtBytes(job.bytesTotal)}${job.bytesPerSecond ? ` - ${fmtBytes(job.bytesPerSecond)}/s` : ''}`;
+        }
+        if (['Completed', 'Failed', 'Cancelled', 'Paused'].includes(job.state)) {
+          if (job.state === 'Completed') toast(`${job.request.modelName || job.request.repoId} is ready.`);
+          if (job.state === 'Failed') toast(job.error || 'Download failed.', true);
+          return location.reload();
+        }
+        setTimeout(tick, 1000);
+      } catch (e) {
+        toast(e.message || String(e), true);
+      }
+    };
+    setTimeout(tick, 600);
+  }
+
+  const hubSearch = $('#hub-search');
+  hubSearch?.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const d = formData(hubSearch);
+    const results = $('#hub-results');
+    results.innerHTML = '<p class="muted">Searching...</p>';
+    guarded(async () => {
+      const params = new URLSearchParams();
+      for (const [k, v] of Object.entries({ q: d.q, format: d.format, task: d.task, sort: d.sort })) if (v) params.set(k, v);
+      const rows = await call('GET', `hub/search?${params}`);
+      if (!rows.length) { results.innerHTML = '<p class="empty">No models matched. Try fewer filters.</p>'; return; }
+      results.innerHTML = `<table><thead><tr><th>Model</th><th>Formats</th><th>Downloads</th><th></th></tr></thead><tbody>${rows.map((r) => `
+        <tr><td><strong>${esc(r.name)}</strong><br /><span class="muted mono">${esc(r.repoId)}</span>${r.gated ? ' <span class="tag">gated</span>' : ''}</td>
+        <td>${r.formats.join(', ') || '-'}</td><td>${r.downloads.toLocaleString()}</td>
+        <td class="actions"><button class="btn small" data-action="hub-open" data-repo="${esc(r.repoId)}" data-source="${esc(r.sourceId)}">Variants...</button></td></tr>`).join('')}</tbody></table>`;
+    });
+  });
+
+  // Expands a repository into the variants that can actually be downloaded, each with a fit verdict.
+  document.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-action="hub-open"]');
+    if (!btn) return;
+    const { repo, source } = btn.dataset;
+    guarded(async () => {
+      const view = await call('GET', `hub/models/${repo.split('/').map(encodeURIComponent).join('/')}?source=${encodeURIComponent(source)}`);
+      const variants = view.variants || [];
+      const target = $('#hub-results');
+      target.innerHTML = `<h3>${esc(view.detail.summary.repoId)}</h3>
+        <p class="muted">${esc(view.detail.summary.license || 'licence not stated')} - ${view.detail.summary.downloads.toLocaleString()} downloads</p>
+        ${variants.length ? `<table><thead><tr><th>Variant</th><th>Size</th><th>Fits</th><th></th></tr></thead><tbody>${variants.map((v) => `
+          <tr><td><strong>${esc(v.name)}</strong>${v.quantization ? ` <span class="tag">${esc(v.quantization)}</span>` : ''}<br /><span class="muted">${v.format} - ${v.files.length} file(s)</span></td>
+          <td>${fmtBytes(v.sizeBytes)}</td><td>${fitBadge(v.fit)}</td>
+          <td class="actions"><button class="btn small" data-action="hub-download" data-repo="${esc(view.detail.summary.repoId)}" data-source="${esc(source)}" data-files="${esc(v.files.join('|'))}" data-name="${esc(view.detail.summary.name)}">Download</button></td></tr>`).join('')}</tbody></table>`
+          : '<p class="empty">This repository has no GGUF or ONNX files NetCoreAI can run. It may need converting first.</p>'}
+        <button class="btn small" data-action="hub-back">Back to search</button>`;
+    }, btn);
+  });
+
+  const importForm = $('#import-form');
+  importForm?.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const d = formData(importForm);
+    if (!d.path && !d.url) { toast('Give a path on the server or a URL.', true); return; }
+    guarded(async () => {
+      const r = await call('POST', 'models/import', { path: d.path || null, url: d.url || null, name: d.name || null, copy: !!d.copy });
+      if (r.job) { toast('Download queued.'); watchDownload(r.job.id); } else { toast(`Imported ${r.model.name}.`); setTimeout(() => location.reload(), 900); }
+    });
+  });
+
+  // Any download still moving when the page loads keeps its row live.
+  $$('#downloads-table tr[data-id]').forEach((row) => {
+    if (row.querySelector('.status.downloading, .status.queued')) watchDownload(row.dataset.id);
   });
 
   const aliasForm = $('#alias-form');

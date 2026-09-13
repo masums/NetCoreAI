@@ -1,0 +1,191 @@
+@using NetCoreAI.Hub
+@inject IHubService Hub
+@inject IDownloadManager Downloads
+@inject Microsoft.Extensions.Options.IOptionsMonitor<NetCoreAIOptions> Options
+
+<header class="page-header">
+    <h1>Model Hub</h1>
+    <p class="muted">Browse Hugging Face, check what fits this machine, and download without leaving the dashboard. Files are fetched by the server, verified against their published SHA-256, and registered when they land.</p>
+</header>
+
+@if (_offline)
+{
+    <section class="card">
+        <h2>Offline mode is on</h2>
+        <p class="muted">The hub is not reachable while offline mode is enabled, so nothing here can be browsed or downloaded. Turn it off in <a href="@Ctx.Url("settings")">Settings → Network</a>, or import a model the server can already read from disk.</p>
+    </section>
+}
+else
+{
+    <section class="card">
+        <div class="toolbar">
+            <h2>Search</h2>
+            <span class="muted">@string.Join(", ", Hub.Sources.Select(s => s.DisplayName))</span>
+        </div>
+        <form id="hub-search" class="inline-form">
+            <input name="q" placeholder="model name, e.g. qwen2.5 instruct" />
+            <select name="format">
+                <option value="">any format</option>
+                <option value="Gguf">GGUF (llama.cpp)</option>
+                <option value="Onnx">ONNX</option>
+                <option value="Safetensors">Safetensors</option>
+            </select>
+            <select name="task">
+                <option value="">any task</option>
+                <option value="text-generation">text generation</option>
+                <option value="feature-extraction">embeddings</option>
+            </select>
+            <select name="sort">
+                <option value="Downloads">most downloaded</option>
+                <option value="Likes">most liked</option>
+                <option value="LastModified">recently updated</option>
+                <option value="Trending">trending</option>
+            </select>
+            <button class="btn" type="submit">Search</button>
+        </form>
+        <div id="hub-results"></div>
+    </section>
+
+    <section class="card">
+        <div class="toolbar">
+            <h2>Recommended</h2>
+            @if (_embeddedFallback)
+            {
+                <span class="muted">built-in list (the published manifest could not be fetched)</span>
+            }
+        </div>
+        <p class="muted">Small, permissively licensed models that run without a GPU. The badge is this machine's verdict, from the same estimator the registry uses after download.</p>
+        <table id="hub-recommended">
+            <thead><tr><th>Model</th><th>Use</th><th>Size</th><th>Fits</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var m in _recommended)
+                {
+                    <tr>
+                        <td>
+                            <strong>@m.Name</strong><br />
+                            <span class="muted mono">@m.RepoId</span>
+                            @if (m.Quantization is not null) { <span class="tag">@m.Quantization</span> }
+                        </td>
+                        <td>
+                            @m.Summary<br />
+                            <span class="muted">@m.Category@(m.License is null ? "" : $" · {m.License}")@(m.Alias is null ? "" : $" · suggested alias {m.Alias}")</span>
+                        </td>
+                        <td>@Fmt.Bytes(m.SizeBytes)</td>
+                        <td>@FitBadge(m.Fit)</td>
+                        <td class="actions">
+                            <button class="btn small" data-action="hub-download"
+                                    data-repo="@m.RepoId" data-source="@m.SourceId"
+                                    data-files="@string.Join('|', m.Files)" data-name="@m.Name">Download</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </section>
+
+    <section class="card">
+        <h2>Import a model already on this machine</h2>
+        <p class="muted">The path is read by the server, not the browser: a <code>.gguf</code> file, or a folder holding <code>genai_config.json</code> or an ONNX export. A direct URL is fetched through the same queue as a hub download.</p>
+        <form id="import-form" class="inline-form" data-api="models/import">
+            <input name="path" placeholder="/models/qwen2.5-0.5b-instruct-q4_k_m.gguf" />
+            <input name="url" placeholder="or https://…/model.gguf" />
+            <input name="name" placeholder="display name (optional)" />
+            <label class="checkbox"><input type="checkbox" name="copy" /> copy into the data directory</label>
+            <button class="btn" type="submit">Import</button>
+        </form>
+    </section>
+}
+
+<section class="card">
+    <div class="toolbar">
+        <h2>Downloads</h2>
+        <span class="muted" id="downloads-count">@_jobs.Count job(s)</span>
+    </div>
+    @if (_jobs.Count == 0)
+    {
+        <p class="empty">Nothing downloaded yet. Pick a recommended model above, or search the hub.</p>
+    }
+    else
+    {
+        <table id="downloads-table">
+            <thead><tr><th>Model</th><th>Progress</th><th>State</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var j in _jobs)
+                {
+                    <tr data-id="@j.Id">
+                        <td>
+                            <strong>@(j.Request.ModelName ?? j.Request.RepoId)</strong><br />
+                            <span class="muted mono">@j.Request.RepoId</span>
+                            @if (j.CurrentFile is not null) { <br /><small class="muted">@j.CurrentFile</small> }
+                        </td>
+                        <td>
+                            <progress value="@j.BytesDone" max="@(j.BytesTotal > 0 ? j.BytesTotal : 1)"></progress><br />
+                            <small class="muted">@Fmt.Bytes(j.BytesDone) of @Fmt.Bytes(j.BytesTotal)</small>
+                        </td>
+                        <td>
+                            <span class="status @j.State.ToString().ToLowerInvariant()">@j.State</span>
+                            @if (j.Error is not null) { <br /><small class="muted">@j.Error</small> }
+                        </td>
+                        <td class="actions">
+                            @if (j.State is DownloadState.Downloading or DownloadState.Queued)
+                            {
+                                <button class="btn small" data-action="download-pause" data-id="@j.Id">Pause</button>
+                                <button class="btn small danger" data-action="download-cancel" data-id="@j.Id">Cancel</button>
+                            }
+                            else if (j.State is DownloadState.Paused or DownloadState.Failed)
+                            {
+                                <button class="btn small" data-action="download-resume" data-id="@j.Id">Resume</button>
+                                <button class="btn small danger" data-action="download-cancel" data-id="@j.Id">Remove</button>
+                            }
+                            else if (j.ResultModelId is not null)
+                            {
+                                <a class="btn small" href="@Ctx.Url("models")">Open in registry</a>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+@code {
+    [Parameter] public DashboardContext Ctx { get; set; } = default!;
+
+    private IReadOnlyList<RecommendedModel> _recommended = [];
+    private IReadOnlyList<DownloadJob> _jobs = [];
+    private bool _offline;
+    private bool _embeddedFallback;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _offline = Options.CurrentValue.Network.OfflineMode;
+        _jobs = await Downloads.ListAsync();
+
+        if (_offline)
+        {
+            return;
+        }
+
+        try
+        {
+            _recommended = await Hub.GetRecommendedAsync();
+
+            // Everything in the built-in list is reachable offline too, so say which copy is on screen.
+            _embeddedFallback = _recommended.Count > 0 && Options.CurrentValue.Network.OfflineMode;
+        }
+        catch (NetCoreAIException)
+        {
+            // The page still renders: search and downloads work even when the manifest does not.
+            _recommended = [];
+        }
+    }
+
+    private static MarkupString FitBadge(MemoryEstimate? fit) => new(fit?.Verdict switch
+    {
+        FitVerdict.Fits => "<span class=\"status loaded\">fits</span>",
+        FitVerdict.Tight => "<span class=\"status loading\">tight</span>",
+        FitVerdict.WontFit => "<span class=\"status error\">too big</span>",
+        _ => "<span class=\"muted\">unknown</span>",
+    });
+}

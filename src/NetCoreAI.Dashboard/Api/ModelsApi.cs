@@ -31,6 +31,24 @@ internal static class ModelsApi
         models.MapPost("/", async (ModelDescriptor model, IModelRegistry registry, CancellationToken ct) =>
             Results.Ok(await registry.RegisterAsync(model, ct))).WithName("NetCoreAI.Models.Register");
 
+        // Import: a path the server can read, or a URL queued through the download manager.
+        models.MapPost("/import", async (ImportRequest request, IModelImporter importer, CancellationToken ct) =>
+        {
+            if (!string.IsNullOrWhiteSpace(request.Path))
+            {
+                var imported = await importer.ImportFromPathAsync(request.Path, request.Name, request.Copy, ct);
+                return Results.Ok(new { model = imported });
+            }
+
+            if (Uri.TryCreate(request.Url, UriKind.Absolute, out var url))
+            {
+                var job = await importer.ImportFromUrlAsync(url, request.Name, ct);
+                return Results.Accepted($"downloads/{job.Id}", new { job });
+            }
+
+            return Results.BadRequest(new { error = "Give either a path on the server or an absolute http(s) URL." });
+        }).WithName("NetCoreAI.Models.Import");
+
         models.MapPut("/{id}", async (string id, ModelUpdate update, IModelRegistry registry, CancellationToken ct) =>
         {
             var entry = await registry.GetAsync(id, ct);
@@ -135,6 +153,13 @@ internal static class ModelsApi
         MemoryBytes = e.Loaded?.MemoryBytes,
         LoadedAt = e.Loaded?.LoadedAt,
     };
+
+    /// <summary>Import a model the server can already reach: a local path, or a direct URL.</summary>
+    /// <param name="Path">File or folder on the server's filesystem.</param>
+    /// <param name="Url">Direct http(s) link to a model file.</param>
+    /// <param name="Name">Display name; defaults to the file or folder name.</param>
+    /// <param name="Copy">Copy the files into the data directory instead of registering them where they are.</param>
+    public sealed record ImportRequest(string? Path, string? Url, string? Name, bool Copy = false);
 
     public sealed record ModelUpdate(string? Name, ModelParameters? DefaultParameters, string? ChatTemplate, IReadOnlyList<string>? Tags, string? Notes, bool? LoadOnStartup, int? ContextLength);
 

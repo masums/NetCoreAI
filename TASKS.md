@@ -51,15 +51,15 @@ Not a product phase, but required before Phase 1 can start.
 
 ### Hardware & Lifecycle
 - [x] Hardware probe (§7.1.6): OS, CPU cores, RAM, GPU vendor/VRAM (NVML, DirectML/Vulkan enumeration), NPU presence
-- [ ] "Will it fit" quantization/GPU-split recommendation before download/load — *estimator + `/api/hardware/fit` done; pre-download badge needs the Hub (WP1.9)*
+- [x] "Will it fit" quantization/GPU-split recommendation before download/load
 - [x] Model lifecycle (§7.1.7): load/unload/warm-up as `IHostedService`, idle unload timeout, concurrency policy (single-slot/pool/reject), multi-model memory budget, graceful shutdown
 
 ### Model Hub
-- [ ] Hugging Face search/browse (§7.2.1): name/author/task/format/license/size/downloads/likes filters
-- [ ] Curated "Recommended" manifest (JSON, remote-fetched with offline fallback)
-- [ ] Model detail page: README render, file list, quantization variants, license, fits-hardware badge
-- [ ] Download manager (§7.2.2): file/variant selection, resumable + parallel + bandwidth-limited downloads, pause/resume/cancel, SHA-256 verification, SignalR progress, HF token support, mirror/proxy config
-- [ ] Import (§7.2.3): local path/upload (chunked), URL import, auto-detect format/arch/quantization/context/chat template
+- [x] Hugging Face search/browse (§7.2.1): name/author/task/format/license/size/downloads/likes filters
+- [x] Curated "Recommended" manifest (JSON, remote-fetched with offline fallback)
+- [ ] Model detail page: README render, file list, quantization variants, license, fits-hardware badge — *variants, licence and fit badge done; the README comes back from the API but is not yet rendered with Markdig*
+- [ ] Download manager (§7.2.2): file/variant selection, resumable + parallel + bandwidth-limited downloads, pause/resume/cancel, SHA-256 verification, SignalR progress, HF token support, mirror/proxy config — *all done except progress, which polls `/api/downloads/{id}` rather than pushing over SignalR*
+- [ ] Import (§7.2.3): local path/upload (chunked), URL import, auto-detect format/arch/quantization/context/chat template — *server path, URL and auto-detect done; chunked browser upload not started*
 
 ### Local Model Management
 - [ ] Model registry table (§7.3.1): metadata, status, aliases (`fast`/`quality`/`embed`), per-model default params, tags/notes — *page + API done; per-model default-parameter editor still API-only*

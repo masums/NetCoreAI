@@ -1,3 +1,5 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using NetCoreAI.Backends.Gguf;
 
 namespace NetCoreAI;
@@ -12,6 +14,9 @@ public static class GgufBackendExtensions
     public static NetCoreAIBuilder AddGgufBackend(this NetCoreAIBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
+
+        // Lets import and the download manager identify .gguf files without Core knowing the format.
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IModelFormatDetector, GgufFormatDetector>());
         return builder.AddProvider<GgufModelProvider>();
     }
 }

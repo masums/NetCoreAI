@@ -12,6 +12,7 @@ internal static class PagesApi
     {
         group.MapGet("/", (HttpContext http, PageRenderer r) => Page<OverviewPage>(http, r, "")).ExcludeFromDescription();
         group.MapGet("/models", (HttpContext http, PageRenderer r) => Page<ModelsPage>(http, r, "models")).ExcludeFromDescription();
+        group.MapGet("/hub", (HttpContext http, PageRenderer r) => Page<HubPage>(http, r, "hub")).ExcludeFromDescription();
         group.MapGet("/providers", (HttpContext http, PageRenderer r) => Page<ProvidersPage>(http, r, "providers")).ExcludeFromDescription();
         group.MapGet("/chat", (HttpContext http, PageRenderer r) => Page<ChatPage>(http, r, "chat")).ExcludeFromDescription();
         group.MapGet("/hardware", (HttpContext http, PageRenderer r) => Page<HardwarePage>(http, r, "hardware")).ExcludeFromDescription();

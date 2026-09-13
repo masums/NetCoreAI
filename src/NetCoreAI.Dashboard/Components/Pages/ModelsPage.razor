@@ -12,7 +12,7 @@
     </div>
     @if (_models.Count == 0)
     {
-        <p class="empty">No models yet. Add a <a href="@Ctx.Url("providers")">provider connection</a> and sync its models, or import a local file (Model Hub arrives with the next work package).</p>
+        <p class="empty">No models yet. Download one from the <a href="@Ctx.Url("hub")">Model Hub</a>, import a file the server can read, or add a <a href="@Ctx.Url("providers")">provider connection</a> and sync its models.</p>
     }
     else
     {

@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NetCoreAI.Clients;
 using NetCoreAI.Hardware;
+using NetCoreAI.Hub;
 using NetCoreAI.Models;
 using NetCoreAI.Providers;
 using NetCoreAI.Security;
@@ -71,6 +72,21 @@ public static class NetCoreAIServiceCollectionExtensions
         services.TryAddSingleton<ModelRegistry>();
         services.TryAddSingleton<IModelRegistry>(sp => sp.GetRequiredService<ModelRegistry>());
         services.AddHostedService(sp => sp.GetRequiredService<ModelRegistry>());
+
+        // Hub: outbound HTTP (proxy + offline enforcement), Hugging Face as the default source, curated list.
+        services.AddNetCoreAIHttpClients();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IModelSource, HuggingFaceClient>());
+        services.TryAddSingleton<CuratedManifestService>();
+        services.TryAddSingleton<IHubService, HubService>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IModelSource, UrlModelSource>());
+
+        // Downloads: one worker, resumable and verified, registering what it fetches in the model registry.
+        services.TryAddSingleton<BandwidthLimiter>();
+        services.TryAddSingleton<FileDownloader>();
+        services.TryAddSingleton<DownloadManager>();
+        services.TryAddSingleton<IDownloadManager>(sp => sp.GetRequiredService<DownloadManager>());
+        services.AddHostedService(sp => sp.GetRequiredService<DownloadManager>());
+        services.TryAddSingleton<IModelImporter, ModelImporter>();
 
         services.TryAddSingleton<IConnectionManager, ConnectionManager>();
         services.TryAddSingleton<SettingsService>();
