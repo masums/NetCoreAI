@@ -84,6 +84,18 @@ else
     </section>
 
     <section class="card">
+        <h2>Upload a model file</h2>
+        <p class="muted">Sends the file from this browser in 8 MB chunks, so a multi-gigabyte GGUF does not have to fit in one request. The file lands in the data directory and is registered when it finishes.</p>
+        <form id="upload-form" class="inline-form">
+            <input name="file" type="file" required />
+            <input name="name" placeholder="display name (optional)" />
+            <button class="btn" type="submit">Upload</button>
+        </form>
+        <progress id="upload-progress" value="0" max="1" hidden></progress>
+        <span id="upload-status" class="muted small"></span>
+    </section>
+
+    <section class="card">
         <h2>Import a model already on this machine</h2>
         <p class="muted">The path is read by the server, not the browser: a <code>.gguf</code> file, or a folder holding <code>genai_config.json</code> or an ONNX export. A direct URL is fetched through the same queue as a hub download.</p>
         <form id="import-form" class="inline-form" data-api="models/import">

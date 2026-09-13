@@ -57,9 +57,9 @@ Not a product phase, but required before Phase 1 can start.
 ### Model Hub
 - [x] Hugging Face search/browse (§7.2.1): name/author/task/format/license/size/downloads/likes filters
 - [x] Curated "Recommended" manifest (JSON, remote-fetched with offline fallback)
-- [ ] Model detail page: README render, file list, quantization variants, license, fits-hardware badge — *variants, licence and fit badge done; the README comes back from the API but is not yet rendered with Markdig*
-- [ ] Download manager (§7.2.2): file/variant selection, resumable + parallel + bandwidth-limited downloads, pause/resume/cancel, SHA-256 verification, SignalR progress, HF token support, mirror/proxy config — *all done except progress, which polls `/api/downloads/{id}` rather than pushing over SignalR*
-- [ ] Import (§7.2.3): local path/upload (chunked), URL import, auto-detect format/arch/quantization/context/chat template — *server path, URL and auto-detect done; chunked browser upload not started*
+- [x] Model detail page: README render, file list, quantization variants, license, fits-hardware badge
+- [x] Download manager (§7.2.2): file/variant selection, resumable + parallel + bandwidth-limited downloads, pause/resume/cancel, SHA-256 verification, live progress, HF token support, mirror/proxy config — *progress is pushed over SSE rather than SignalR; see the note in [docs/plans/phase-1-foundation.md](docs/plans/phase-1-foundation.md)*
+- [x] Import (§7.2.3): local path/upload (chunked), URL import, auto-detect format/arch/quantization/context/chat template
 
 ### Local Model Management
 - [x] Model registry table (§7.3.1): metadata, status, aliases (`fast`/`quality`/`embed`), per-model default params, tags/notes

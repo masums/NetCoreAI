@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using NetCoreAI.Providers;
 
+using NetCoreAI.Hub;
+
 namespace NetCoreAI.Dashboard.Api;
 
 internal static class ModelsApi
@@ -48,6 +50,27 @@ internal static class ModelsApi
 
             return Results.BadRequest(new { error = "Give either a path on the server or an absolute http(s) URL." });
         }).WithName("NetCoreAI.Models.Import");
+
+        // Chunked upload: a multi-gigabyte GGUF cannot ride in one request, and holding it in memory
+        // would be worse. Chunks append in order and the session survives a refresh mid-upload.
+        models.MapPost("/upload/init", async (UploadInitRequest request, IModelUploadService uploads, CancellationToken ct) =>
+            Results.Ok(await uploads.BeginAsync(request.FileName, request.SizeBytes, ct)))
+            .WithName("NetCoreAI.Models.UploadInit");
+
+        models.MapPut("/upload/{uploadId}", async (string uploadId, HttpContext http, IModelUploadService uploads, long offset = 0, CancellationToken ct = default) =>
+            Results.Ok(await uploads.AppendAsync(uploadId, offset, http.Request.Body, ct)))
+            .WithName("NetCoreAI.Models.UploadChunk")
+            .ExcludeFromDescription();
+
+        models.MapPost("/upload/{uploadId}/complete", async (string uploadId, UploadCompleteRequest? request, IModelUploadService uploads, CancellationToken ct) =>
+            Results.Ok(new { model = await uploads.CompleteAsync(uploadId, request?.Name, ct) }))
+            .WithName("NetCoreAI.Models.UploadComplete");
+
+        models.MapDelete("/upload/{uploadId}", async (string uploadId, IModelUploadService uploads, CancellationToken ct) =>
+        {
+            await uploads.AbortAsync(uploadId, ct);
+            return Results.NoContent();
+        }).WithName("NetCoreAI.Models.UploadAbort");
 
         models.MapPut("/{id}", async (string id, ModelUpdate update, IModelRegistry registry, CancellationToken ct) =>
         {
@@ -153,6 +176,12 @@ internal static class ModelsApi
         MemoryBytes = e.Loaded?.MemoryBytes,
         LoadedAt = e.Loaded?.LoadedAt,
     };
+
+    /// <summary>Starts an upload: the browser declares the name and size before sending any bytes.</summary>
+    public sealed record UploadInitRequest(string FileName, long SizeBytes);
+
+    /// <summary>Finishes an upload and registers what arrived.</summary>
+    public sealed record UploadCompleteRequest(string? Name);
 
     /// <summary>Import a model the server can already reach: a local path, or a direct URL.</summary>
     /// <param name="Path">File or folder on the server's filesystem.</param>

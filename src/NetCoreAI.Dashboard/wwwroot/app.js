@@ -69,11 +69,11 @@
         return guarded(async () => {
           const job = await call('POST', 'downloads', { repoId: repo, source, files: files.split('|').filter(Boolean), name: btn.dataset.name });
           toast(`Downloading ${btn.dataset.name || repo}...`);
-          watchDownload(job.id);
+          setTimeout(() => location.reload(), 500);
         }, btn);
       }
       case 'download-pause': return guarded(async () => { await call('POST', `downloads/${encodeURIComponent(id)}/pause`); reload(); }, btn);
-      case 'download-resume': return guarded(async () => { await call('POST', `downloads/${encodeURIComponent(id)}/resume`); watchDownload(id); }, btn);
+      case 'download-resume': return guarded(async () => { await call('POST', `downloads/${encodeURIComponent(id)}/resume`); watchDownloads(); }, btn);
       case 'hub-back': return location.reload();
       case 'edit-model': return guarded(() => openModelEditor(id), btn);
       case 'close-editor': { const ed = $('#model-editor'); if (ed) ed.hidden = true; return; }
@@ -108,30 +108,43 @@
     }
   };
 
-  // Polls one job until it settles, so the row reflects reality without a manual refresh.
-  function watchDownload(id) {
-    if (!id) return;
-    const tick = async () => {
-      try {
-        const job = await call('GET', `downloads/${encodeURIComponent(id)}`);
-        const row = $(`#downloads-table tr[data-id="${id}"]`);
-        if (row) {
-          const bar = row.querySelector('progress');
-          if (bar) { bar.value = job.bytesDone; bar.max = job.bytesTotal || 1; }
-          const small = row.querySelector('td:nth-child(2) small');
-          if (small) small.textContent = `${fmtBytes(job.bytesDone)} of ${fmtBytes(job.bytesTotal)}${job.bytesPerSecond ? ` - ${fmtBytes(job.bytesPerSecond)}/s` : ''}`;
-        }
-        if (['Completed', 'Failed', 'Cancelled', 'Paused'].includes(job.state)) {
-          if (job.state === 'Completed') toast(`${job.request.modelName || job.request.repoId} is ready.`);
-          if (job.state === 'Failed') toast(job.error || 'Download failed.', true);
-          return location.reload();
-        }
-        setTimeout(tick, 1000);
-      } catch (e) {
-        toast(e.message || String(e), true);
-      }
+  // One event stream serves every row: the server pushes each job as it changes, so there is no polling
+  // and no per-download timer. EventSource reconnects on its own if the connection drops.
+  let downloadStream = null;
+  function watchDownloads() {
+    if (downloadStream || !$('#downloads-table')) return;
+    downloadStream = new EventSource(api('downloads/events'));
+    downloadStream.addEventListener('progress', (ev) => {
+      let job;
+      try { job = JSON.parse(ev.data); } catch { return; }
+      applyDownload(job);
+    });
+    downloadStream.onerror = () => {
+      // EventSource retries by itself; a page left open overnight should not spam the user.
+      if (downloadStream.readyState === EventSource.CLOSED) downloadStream = null;
     };
-    setTimeout(tick, 600);
+  }
+
+  function applyDownload(job) {
+    const row = $(`#downloads-table tr[data-id="${job.id}"]`);
+    if (!row) {
+      // A job queued from another tab: reload once so the new row appears with its controls.
+      if (job.state === 'Queued' || job.state === 'Downloading') location.reload();
+      return;
+    }
+
+    const bar = row.querySelector('progress');
+    if (bar) { bar.value = job.bytesDone; bar.max = job.bytesTotal || 1; }
+    const small = row.querySelector('td:nth-child(2) small');
+    if (small) small.textContent = `${fmtBytes(job.bytesDone)} of ${fmtBytes(job.bytesTotal)}${job.bytesPerSecond ? ` - ${fmtBytes(job.bytesPerSecond)}/s` : ''}`;
+    const status = row.querySelector('.status');
+    if (status) { status.textContent = job.state; status.className = `status ${job.state.toLowerCase()}`; }
+
+    if (['Completed', 'Failed', 'Cancelled'].includes(job.state)) {
+      if (job.state === 'Completed') toast(`${job.request.modelName || job.request.repoId} is ready.`);
+      if (job.state === 'Failed') toast(job.error || 'Download failed.', true);
+      setTimeout(() => location.reload(), 800);
+    }
   }
 
   const hubSearch = $('#hub-search');
@@ -163,6 +176,7 @@
       const target = $('#hub-results');
       target.innerHTML = `<h3>${esc(view.detail.summary.repoId)}</h3>
         <p class="muted">${esc(view.detail.summary.license || 'licence not stated')} - ${view.detail.summary.downloads.toLocaleString()} downloads</p>
+        ${view.readmeHtml ? `<details class="model-card"><summary>Model card</summary><div class="markdown">${view.readmeHtml}</div></details>` : ''}
         ${variants.length ? `<table><thead><tr><th>Variant</th><th>Size</th><th>Fits</th><th></th></tr></thead><tbody>${variants.map((v) => `
           <tr><td><strong>${esc(v.name)}</strong>${v.quantization ? ` <span class="tag">${esc(v.quantization)}</span>` : ''}<br /><span class="muted">${v.format} - ${v.files.length} file(s)</span></td>
           <td>${fmtBytes(v.sizeBytes)}</td><td>${fitBadge(v.fit)}</td>
@@ -172,6 +186,55 @@
     }, btn);
   });
 
+  // Uploads go up in chunks: a 4 GB model cannot ride in one request, and the session survives a
+  // dropped chunk because the server tells us how many bytes it already has.
+  const uploadForm = $('#upload-form');
+  uploadForm?.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const input = uploadForm.elements.file;
+    const file = input.files && input.files[0];
+    if (!file) { toast('Choose a file to upload.', true); return; }
+
+    const status = $('#upload-status');
+    const bar = $('#upload-progress');
+    const button = uploadForm.querySelector('button[type="submit"]');
+    const chunkSize = 8 * 1024 * 1024;
+
+    guarded(async () => {
+      const session = await call('POST', 'models/upload/init', { fileName: file.name, sizeBytes: file.size });
+      bar.hidden = false;
+      bar.max = file.size;
+      let offset = 0;
+      try {
+        while (offset < file.size) {
+          const end = Math.min(offset + chunkSize, file.size);
+          const res = await fetch(api(`models/upload/${session.uploadId}?offset=${offset}`), {
+            method: 'PUT',
+            body: file.slice(offset, end),
+            headers: { 'Content-Type': 'application/octet-stream' },
+            credentials: 'same-origin',
+          });
+          if (!res.ok) throw new Error(`Upload failed at ${fmtBytes(offset)}: ${res.status} ${res.statusText}`);
+          const state = await res.json();
+          offset = state.receivedBytes;
+          bar.value = offset;
+          status.textContent = `${fmtBytes(offset)} of ${fmtBytes(file.size)}`;
+        }
+
+        status.textContent = 'Registering...';
+        const done = await call('POST', `models/upload/${session.uploadId}/complete`, { name: uploadForm.elements.name.value || null });
+        toast(`Uploaded and registered ${done.model.name}.`);
+        setTimeout(() => location.reload(), 900);
+      } catch (e) {
+        // Abandon the scratch file rather than leaving gigabytes in uploads/.
+        await call('DELETE', `models/upload/${session.uploadId}`).catch(() => {});
+        bar.hidden = true;
+        status.textContent = '';
+        throw e;
+      }
+    }, button);
+  });
+
   const importForm = $('#import-form');
   importForm?.addEventListener('submit', (ev) => {
     ev.preventDefault();
@@ -179,14 +242,12 @@
     if (!d.path && !d.url) { toast('Give a path on the server or a URL.', true); return; }
     guarded(async () => {
       const r = await call('POST', 'models/import', { path: d.path || null, url: d.url || null, name: d.name || null, copy: !!d.copy });
-      if (r.job) { toast('Download queued.'); watchDownload(r.job.id); } else { toast(`Imported ${r.model.name}.`); setTimeout(() => location.reload(), 900); }
+      if (r.job) { toast('Download queued.'); setTimeout(() => location.reload(), 500); } else { toast(`Imported ${r.model.name}.`); setTimeout(() => location.reload(), 900); }
     });
   });
 
-  // Any download still moving when the page loads keeps its row live.
-  $$('#downloads-table tr[data-id]').forEach((row) => {
-    if (row.querySelector('.status.downloading, .status.queued')) watchDownload(row.dataset.id);
-  });
+  // One stream for the page, opened whenever the downloads table is on screen.
+  watchDownloads();
 
   // Select-all for the reclaimable files list.
   $('#orphan-all')?.addEventListener('change', (ev) => {

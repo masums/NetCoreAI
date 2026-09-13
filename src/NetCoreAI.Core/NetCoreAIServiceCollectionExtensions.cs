@@ -88,6 +88,7 @@ public static class NetCoreAIServiceCollectionExtensions
         services.TryAddSingleton<IDownloadManager>(sp => sp.GetRequiredService<DownloadManager>());
         services.AddHostedService(sp => sp.GetRequiredService<DownloadManager>());
         services.TryAddSingleton<IModelImporter, ModelImporter>();
+        services.TryAddSingleton<IModelUploadService, ModelUploadService>();
         services.TryAddSingleton<IStorageService, StorageService>();
 
         // Live traffic for the overview page, and per-call cost from connection pricing.

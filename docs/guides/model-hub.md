@@ -39,6 +39,8 @@ Downloads are persisted as they change, so whatever was in flight is re-queued a
 
 When a job finishes, the files are identified and registered, which is what makes a downloaded model appear on the Models page ready to load.
 
+Progress is pushed to the dashboard over Server-Sent Events at `GET /api/downloads/events`: one stream per page rather than a timer per row, and the browser reconnects on its own if it drops. The plan called for a SignalR hub; SSE was chosen instead so the dashboard needs no client library, which keeps an air-gapped install working and the package small.
+
 ## Importing
 
 ```csharp
@@ -47,6 +49,16 @@ await importer.ImportFromUrlAsync(new Uri("https://internal-mirror/model.gguf"))
 ```
 
 A path is read by the server, not the browser: a `.gguf` file, or a folder holding `genai_config.json` or an ONNX export with its tokenizer. Pass `copyIntoDataDirectory: true` to copy it in so deleting the model later stays self-contained. A URL is queued through the same download manager, so it resumes and verifies like any hub file.
+
+### Uploading from the browser
+
+A file on the user's own machine goes up in 8 MB chunks — `POST /api/models/upload/init`, then `PUT /api/models/upload/{id}?offset=N` per chunk, then `POST /api/models/upload/{id}/complete` — so a multi-gigabyte model neither rides in one request nor sits in memory. The session records how many bytes have arrived, so a refresh mid-upload knows where to resume, and `DELETE` on the session abandons it.
+
+The file name comes from the browser, so it is reduced to a bare name before touching disk: separators and traversal segments are stripped rather than trusted. Chunks must arrive in order at the offset the server expects; a gap or a repeat is refused rather than silently corrupting the file. If no backend recognises the finished upload, the file is kept and the error names the package to add — re-uploading gigabytes because detection failed would be its own bug.
+
+### Model cards
+
+The README is rendered server-side with Markdig, with raw HTML disabled and link schemes filtered to `http`, `https` and `mailto`. A model card is a stranger's markdown arriving in a dashboard that manages models and secrets: stripping HTML alone would not be enough, because `[click](javascript:…)` is ordinary markdown, not HTML. Relative links and images are rebased on the repository so a card's own screenshots resolve.
 
 ## Format detection
 
@@ -70,3 +82,7 @@ A model whose backend is not referenced still downloads; it is logged and left u
 | GET/DELETE | `/api/downloads/{id}` | One job; DELETE cancels and discards partial files |
 | POST | `/api/downloads/{id}/pause`, `/resume` | Pause and resume |
 | POST | `/api/models/import` | Import from a server path or a URL |
+| GET | `/api/downloads/events` | SSE stream of live download progress |
+| POST | `/api/models/upload/init` | Start a chunked upload |
+| PUT | `/api/models/upload/{id}?offset=N` | Send one chunk |
+| POST/DELETE | `/api/models/upload/{id}/complete`, `/api/models/upload/{id}` | Finish or abandon an upload |

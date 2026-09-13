@@ -70,7 +70,9 @@ Tests: metadata parser unit tests on hand-built headers; conformance against a <
 ### WP1.8 ONNX provider (`Backend.Onnx`) — done
 `Microsoft.ML.OnnxRuntimeGenAI` `Model`/`Tokenizer`/`Generator`; loads HF folder with `genai_config.json`; execution provider preference from settings (CPU/DirectML/CUDA); streaming token generation; embeddings via plain `Microsoft.ML.OnnxRuntime` session with mean pooling for sentence-transformers exports (tokenizer via `Microsoft.ML.Tokenizers`). Fixture: `onnx-community/Qwen2.5-0.5B-Instruct` int4 CPU.
 
-### WP1.9 Model Hub (Model Hub group) — done except SignalR progress, README render and chunked upload
+### WP1.9 Model Hub (Model Hub group) — done
+
+**Deviation from this plan:** download progress is pushed over Server-Sent Events (`GET /api/downloads/events`) rather than a SignalR hub. The dashboard is plain JS with no build step, and SignalR would mean shipping its client library — a CDN reference that breaks air-gapped installs, or ~40 KB embedded in the package. SSE needs no client library, is the transport the chat playground already streams over, and reconnects on its own. Revisit if the dashboard ever needs bidirectional messaging.
 `HuggingFaceClient` (search with filters, model info, file list with LFS sha256/size, README raw, gated flag, token header), `CuratedManifest` (JSON fetched from the repo `manifest/recommended.json` with embedded fallback copy), fit badge per variant, Markdig README render. `DownloadManager`: queue with priority, range requests, N parallel chunks per file, token-bucket bandwidth limit, `.part` files + JSON sidecar so it resumes after restart, SHA-256 verify vs LFS metadata, progress → SignalR hub `/netcoreai/_hubs/downloads` + persisted `Downloads` rows; pause/resume/cancel. Import: local path, chunked upload, URL; auto-detect via GGUF reader / `genai_config.json`. Endpoints `/api/hub/*`, `/api/downloads/*`, `/api/models/import`. Dashboard pages: Hub search, Recommended, model detail, downloads panel.
 
 ### WP1.10 Model registry + storage management (Local Model Management group) — done
