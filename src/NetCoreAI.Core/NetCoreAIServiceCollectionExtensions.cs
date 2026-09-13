@@ -106,6 +106,9 @@ public static class NetCoreAIServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IChunker, SentenceChunker>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IChunker, RowChunker>());
         services.TryAddSingleton<IIngestionPipeline, IngestionPipeline>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSource, FileDataSource>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSource, RestApiDataSource>());
+        services.TryAddSingleton<IKnowledgeService, KnowledgeService>();
 
         // Live traffic for the overview page, and per-call cost from connection pricing.
         services.TryAddSingleton<IUsageTracker, UsageTracker>();
