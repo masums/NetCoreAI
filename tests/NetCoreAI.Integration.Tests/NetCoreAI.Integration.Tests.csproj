@@ -8,6 +8,7 @@
     <ProjectReference Include="../../src/Backends/NetCoreAI.Backend.Anthropic/NetCoreAI.Backend.Anthropic.csproj" />
     <ProjectReference Include="../../src/Backends/NetCoreAI.Backend.Ollama/NetCoreAI.Backend.Ollama.csproj" />
     <ProjectReference Include="../../src/Backends/NetCoreAI.Backend.Gguf/NetCoreAI.Backend.Gguf.csproj" />
+    <ProjectReference Include="../../src/Backends/NetCoreAI.Backend.Onnx/NetCoreAI.Backend.Onnx.csproj" />
     <ProjectReference Include="../NetCoreAI.Conformance/NetCoreAI.Conformance.csproj" />
   </ItemGroup>
   <ItemGroup>

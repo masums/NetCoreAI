@@ -67,7 +67,7 @@ Conformance: `ModelProviderConformanceTests` run against a local fake OpenAI-com
 LLamaSharp `LLamaWeights` + `LLamaContext` per slot; `LLamaSharp.Backend.Cpu` referenced by the base package; `NetCoreAI.Backend.Gguf.Cuda12/Vulkan/Metal` are thin packages that only add the native backend package. GGUF metadata reader (own streaming header parser) for architecture, quantization, context length, chat template, embedding flag, used by Import and Hub without loading the model. Chat template applied from metadata via LLamaSharp template support, override per model. GBNF grammar from JSON schema for structured output. Embedding models through `LLamaEmbedder`. Options: context size, GPU layers, batch, flash attention, KV cache type, threads.
 Tests: metadata parser unit tests on hand-built headers; conformance against a < 500 MB fixture (Qwen2.5-0.5B-Instruct Q4_K_M) downloaded on demand, `Category=Model`.
 
-### WP1.8 ONNX provider (`Backend.Onnx`)
+### WP1.8 ONNX provider (`Backend.Onnx`) — done
 `Microsoft.ML.OnnxRuntimeGenAI` `Model`/`Tokenizer`/`Generator`; loads HF folder with `genai_config.json`; execution provider preference from settings (CPU/DirectML/CUDA); streaming token generation; embeddings via plain `Microsoft.ML.OnnxRuntime` session with mean pooling for sentence-transformers exports (tokenizer via `Microsoft.ML.Tokenizers`). Fixture: `onnx-community/Qwen2.5-0.5B-Instruct` int4 CPU.
 
 ### WP1.9 Model Hub (Model Hub group)
