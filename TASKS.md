@@ -93,7 +93,7 @@ Not a product phase, but required before Phase 1 can start.
 
 ## Phase 2 — Knowledge
 
-**Exit criterion:** Chat over a 500-page PDF set with correct citations.
+**Exit criterion:** Chat over a 500-page PDF set with correct citations. — *met: the nightly acceptance run scores 30/30 exact-page citations over 500 pages with nomic-embed-text, ingesting at ~350 pages/min.*
 
 - [x] Knowledge base management (§7.5.1): create KB (embedding model, chunking strategy, vector store, access policy), multiple KBs per agent — *service and API surface done; the dashboard pages land with WP2.7*
 - [x] Data source: file upload (§7.5.2) — PDF, DOCX, PPTX, XLSX, TXT, MD, HTML, CSV, JSON

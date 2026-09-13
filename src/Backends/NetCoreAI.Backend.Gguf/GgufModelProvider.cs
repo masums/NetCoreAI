@@ -12,7 +12,7 @@ namespace NetCoreAI.Backends.Gguf;
 /// <summary>Weights plus the context parameters they were loaded with; stored as the handle on <see cref="LoadedModel"/>.</summary>
 internal sealed class GgufLoadedModel(ModelDescriptor descriptor, LLamaWeights weights, ModelParams parameters, GgufMetadata? metadata) : IDisposable
 {
-    private readonly ConcurrentBag<LLamaEmbedder> _embedders = [];
+    private LLamaEmbedder? _embedder;
 
     // Every StatelessExecutor allocates an LLamaContext (and its multi-hundred-megabyte compute buffer)
     // in its constructor, and the type is not disposable, so one per request would leak. Executors are
@@ -48,11 +48,22 @@ internal sealed class GgufLoadedModel(ModelDescriptor descriptor, LLamaWeights w
         }
     }
 
-    public LLamaEmbedder RentEmbedder(ILogger logger)
+    /// <summary>
+    /// The model's embedder, created once and shared.
+    /// </summary>
+    /// <remarks>
+    /// Every LLamaEmbedder allocates its own llama.cpp context with a compute buffer of hundreds of
+    /// megabytes, so creating one per call would exhaust memory partway through indexing a corpus —
+    /// and the consumer pipeline is rebuilt per call, which would multiply them.
+    /// </remarks>
+    public LLamaEmbedder GetEmbedder(ILogger logger)
     {
-        var embedder = new LLamaEmbedder(Weights, Parameters, logger);
-        _embedders.Add(embedder);
-        return embedder;
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        lock (_executorLock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return _embedder ??= new LLamaEmbedder(Weights, Parameters, logger);
+        }
     }
 
     /// <summary>Takes an executor from the pool, creating one only when every existing executor is busy.</summary>
@@ -97,9 +108,10 @@ internal sealed class GgufLoadedModel(ModelDescriptor descriptor, LLamaWeights w
     {
         _disposed = true;
 
-        while (_embedders.TryTake(out var embedder))
+        lock (_executorLock)
         {
-            embedder.Dispose();
+            _embedder?.Dispose();
+            _embedder = null;
         }
 
         lock (_executorLock)
@@ -115,6 +127,69 @@ internal sealed class GgufLoadedModel(ModelDescriptor descriptor, LLamaWeights w
 
         _executors.Clear();
         Weights.Dispose();
+    }
+}
+
+/// <summary>
+/// Adapts a loaded model's <see cref="LLamaEmbedder"/> to <see cref="IEmbeddingGenerator{TInput,TEmbedding}"/>.
+/// </summary>
+/// <remarks>
+/// LLamaSharp 0.27 ships its own IEmbeddingGenerator implementation on LLamaEmbedder, but it disposes the
+/// context it is using: the very first GenerateAsync call on a fresh embedder throws ObjectDisposedException,
+/// and everything after it fails too. GetEmbeddings is reusable, so the adaptation is done here instead.
+/// Revisit when LLamaSharp fixes its adapter.
+///
+/// Dispose deliberately does nothing: consumer pipelines are rebuilt per call and dispose what they wrap,
+/// which would otherwise take the model's shared llama.cpp context with them. The embedder belongs to the
+/// loaded model and is released when the model unloads.
+/// </remarks>
+internal sealed class SharedEmbeddingGenerator(LLamaEmbedder inner, string modelId, int? dimensions) : IEmbeddingGenerator<string, Embedding<float>>
+{
+    private readonly EmbeddingGeneratorMetadata _metadata = new("gguf", null, modelId, dimensions);
+
+    public async Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
+        IEnumerable<string> values,
+        EmbeddingGenerationOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+
+        var embeddings = new List<Embedding<float>>();
+        foreach (var value in values)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Pooling is configured on the context, so one input yields one vector for the whole text.
+            var vectors = await inner.GetEmbeddings(value ?? string.Empty, cancellationToken).ConfigureAwait(false);
+            if (vectors.Count == 0)
+            {
+                throw new NetCoreAIException($"'{modelId}' returned no embedding for a {value?.Length ?? 0}-character input.");
+            }
+
+            embeddings.Add(new Embedding<float>(vectors[0]) { ModelId = modelId });
+        }
+
+        return new GeneratedEmbeddings<Embedding<float>>(embeddings);
+    }
+
+    public object? GetService(Type serviceType, object? serviceKey = null)
+    {
+        ArgumentNullException.ThrowIfNull(serviceType);
+        if (serviceKey is not null)
+        {
+            return null;
+        }
+
+        // Answered here rather than delegated: asking the LLamaEmbedder is what throws once its context
+        // has been used.
+        return serviceType == typeof(EmbeddingGeneratorMetadata) ? _metadata
+            : serviceType == typeof(LLamaEmbedder) ? inner
+            : serviceType.IsInstanceOfType(this) ? this
+            : null;
+    }
+
+    public void Dispose()
+    {
     }
 }
 
@@ -312,7 +387,10 @@ public sealed class GgufModelProvider(IOptionsMonitor<NetCoreAIOptions> netCoreA
                 $"'{model.Descriptor.Name}' was loaded for generation, not embeddings. Register it as an embedding model (its GGUF header must declare a pooling type) and reload it.");
         }
 
-        return handle.RentEmbedder(loggerFactory.CreateLogger<GgufModelProvider>());
+        return new SharedEmbeddingGenerator(
+            handle.GetEmbedder(loggerFactory.CreateLogger<GgufModelProvider>()),
+            model.Descriptor.Id,
+            handle.Metadata?.EmbeddingLength);
     }
 
     /// <summary>Test hook: the pooled-executor handle behind a loaded model.</summary>

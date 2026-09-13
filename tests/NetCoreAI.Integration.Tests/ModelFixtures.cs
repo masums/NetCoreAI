@@ -39,6 +39,11 @@ public static class ModelFixtures
         "special_tokens_map.json", "modules.json", "1_Pooling/config.json",
     ];
 
+    /// <summary>Nomic Embed Text v1.5, Q4_K_M: 84 MB, 768 dimensions, fast enough on a CPU for a corpus.</summary>
+    public const string EmbeddingModelUrl = "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf";
+
+    private const string EmbeddingModelFile = "nomic-embed-text-v1.5.Q4_K_M.gguf";
+
     private static readonly SemaphoreSlim DownloadLock = new(1, 1);
 
     /// <summary>True when the suite is allowed to use real weights.</summary>
@@ -79,6 +84,47 @@ public static class ModelFixtures
         {
             DownloadLock.Release();
         }
+    }
+
+    /// <summary>Path to the GGUF embedding fixture, downloading it if needed. Null when model tests are disabled.</summary>
+    public static async Task<string?> GetEmbeddingModelAsync(CancellationToken cancellationToken = default)
+    {
+        if (!Enabled)
+        {
+            return null;
+        }
+
+        var path = Path.Combine(CacheDirectory, EmbeddingModelFile);
+        if (File.Exists(path) && new FileInfo(path).Length > 50_000_000)
+        {
+            return path;
+        }
+
+        await DownloadLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (File.Exists(path) && new FileInfo(path).Length > 50_000_000)
+            {
+                return path;
+            }
+
+            Directory.CreateDirectory(CacheDirectory);
+            await DownloadAsync(EmbeddingModelUrl, path, cancellationToken).ConfigureAwait(false);
+            return path;
+        }
+        finally
+        {
+            DownloadLock.Release();
+        }
+    }
+
+    /// <summary>Path to the embedding fixture, skipping the calling test when model tests are switched off.</summary>
+    public static async Task<string> RequireEmbeddingModelAsync(CancellationToken cancellationToken = default)
+    {
+        Assert.SkipUnless(Enabled, "Model tests are off. Set NETCOREAI_TEST_MODELS=1 to download the fixture and run them.");
+        var path = await GetEmbeddingModelAsync(cancellationToken).ConfigureAwait(false);
+        Assert.SkipWhen(path is null, "The embedding test model could not be downloaded.");
+        return path!;
     }
 
     /// <summary>Folder of the ONNX Runtime GenAI chat fixture, downloading it if needed. Null when model tests are disabled.</summary>

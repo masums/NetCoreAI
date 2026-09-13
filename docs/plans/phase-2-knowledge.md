@@ -35,7 +35,7 @@ Dashboard page: pick KBs, chat with citations inline `[1]` → expandable source
 ### WP2.7 Management UI + endpoints
 KB CRUD pages (embedding model picker limited to `Embeddings` capability, chunking config, vector store selector, access policy), data source pages, jobs page (progress, cancel, retry, failure log). Endpoints per TASKS.md.
 
-### WP2.8 Acceptance run
+### WP2.8 Acceptance run — done (generated 500-page corpus rather than sourced public-domain PDFs; see the test)
 Fixture: 500 pages of public-domain PDFs + a QA sheet of 30 questions with expected page citations; integration test asserts ≥ 80 % citation hit rate with a GGUF embedding model (nomic-embed-text), nightly job.
 
 ## Risks
