@@ -108,6 +108,8 @@ public static class NetCoreAIServiceCollectionExtensions
         services.TryAddSingleton<IIngestionPipeline, IngestionPipeline>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSource, FileDataSource>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSource, RestApiDataSource>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSource, SqlDataSource>());
+        services.AddHostedService<SyncScheduler>();
         services.TryAddSingleton<IKnowledgeService, KnowledgeService>();
         services.TryAddSingleton<IRetriever, Retriever>();
         services.TryAddSingleton<IRagChatClientFactory, RagChatClientFactory>();

@@ -97,8 +97,8 @@ Not a product phase, but required before Phase 1 can start.
 
 - [x] Knowledge base management (§7.5.1): create KB (embedding model, chunking strategy, vector store, access policy), multiple KBs per agent — *service and API surface done; the dashboard pages land with WP2.7*
 - [x] Data source: file upload (§7.5.2) — PDF, DOCX, PPTX, XLSX, TXT, MD, HTML, CSV, JSON
-- [ ] Data source: SQL database — connection via host `DbContext`/connection string, table/view/query selection, column mapping, scheduled sync, row-level change detection
-- [ ] Data source: REST API endpoint — reuse Tool definitions (Phase 3 dependency: stub minimal tool-call mechanism or sequence after §7.6 basics), JSON-path → document mapping, schedule — *plain-GET source with JSON-path mapping done; scheduling and the Tool-definition rework are outstanding*
+- [x] Data source: SQL database — connection via host `DbContext`/connection string, table/view/query selection, column mapping, scheduled sync, row-level change detection — *the host registers its own ADO.NET provider; change detection is by content hash plus an optional modified column*
+- [x] Data source: REST API endpoint — reuse Tool definitions (Phase 3 dependency: stub minimal tool-call mechanism or sequence after §7.6 basics), JSON-path → document mapping, schedule — *plain-GET source with JSON-path mapping and cron scheduling done; re-pointing it at Tool definitions waits for §7.6*
 - [x] Data source: host-provided `IKnowledgeSource` for programmatic push — *interface and the push path done; scheduled pull of host sources lands with scheduling*
 - [x] Ingestion pipeline (§7.5.3): extract → clean → chunk → embed → store stages, each swappable via interface
 - [x] Chunking strategies: fixed+overlap, recursive by structure, sentence-aware, per-row tabular
