@@ -71,6 +71,23 @@ public abstract class VectorStoreConformanceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_record_with_no_tags_at_all_is_public()
+    {
+        await Store.EnsureCollectionAsync("kb", 2);
+
+        // This is what the ingestion pipeline writes when neither the base nor the document restricts
+        // access. Treating an empty tag list as "deny everyone" would hide every unrestricted document
+        // from every filtered caller, which is the opposite of what it means.
+        await Store.UpsertAsync("kb", [new VectorRecord("untagged", "d1", new float[] { 1, 0 }, "text", new Dictionary<string, string>(), [])]);
+
+        var filtered = await Store.SearchAsync("kb", new float[] { 1, 0 }, 10, new VectorFilter { CallerTags = ["role:hr"] });
+        var anonymous = await Store.SearchAsync("kb", new float[] { 1, 0 }, 10, new VectorFilter { CallerTags = [] });
+
+        Assert.Equal(["untagged"], filtered.Select(h => h.Record.Id));
+        Assert.Equal(["untagged"], anonymous.Select(h => h.Record.Id));
+    }
+
+    [Fact]
     public async Task Dimension_mismatch_is_rejected()
     {
         await Store.EnsureCollectionAsync("kb", 3);

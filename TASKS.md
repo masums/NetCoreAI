@@ -106,11 +106,11 @@ Not a product phase, but required before Phase 1 can start.
 - [x] Background job runner: progress, retry, failure log, cancellable
 - [x] Deduplication by content hash; re-index only changed documents
 - [x] `IVectorStore` abstraction + SQLite (sqlite-vec) implementation, zero-config
-- [ ] Retrieval (§7.5.4): cosine similarity, top-k, score threshold, metadata filters
-- [ ] ACL-filtered retrieval by caller claims
+- [x] Retrieval (§7.5.4): cosine similarity, top-k, score threshold, metadata filters
+- [x] ACL-filtered retrieval by caller claims
 - [ ] Document chat panel (§7.5.5): citations (source/page/snippet) inline + expandable, "show retrieved chunks" debug view, per-session retrieval settings
-- [ ] `IKnowledgeClient` for programmatic ingest/search (C# client surface)
-- [ ] `GET/POST/PUT/DELETE /api/kb`, `/api/kb/{id}/sources`, `/api/kb/{id}/ingest`, `/api/kb/{id}/search`, `/api/kb/{id}/jobs` endpoints
+- [x] `IKnowledgeClient` for programmatic ingest/search (C# client surface) — *in-process client done; the HTTP client in NetCoreAI.Client lands with WP2.6*
+- [x] `GET/POST/PUT/DELETE /api/kb`, `/api/kb/{id}/sources`, `/api/kb/{id}/ingest`, `/api/kb/{id}/search`, `/api/kb/{id}/jobs` endpoints
 
 ---
 

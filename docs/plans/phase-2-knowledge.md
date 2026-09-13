@@ -26,7 +26,7 @@ Abstractions added: `IVectorStore` (`UpsertAsync`, `SearchAsync(vector, k, filte
 ### WP2.4 SQL and REST data sources — file, REST and host-push sources done; SQL and cron scheduling outstanding
 `SqlDataSource`: connection string or host-registered `DbContext`, table/view/custom query, column mapping (id, title, content, metadata[], acl), scheduled sync (cron via `Cronos`), change detection by row hash or `rowversion`/updated-at column. `RestApiDataSource`: URL + headers (secrets encrypted), JSON-path → documents, schedule; Phase 3 dependency handled by implementing it as a plain HTTP fetch now and re-pointing it at Tool definitions when §7.6 lands. `HostKnowledgeSource`: `IKnowledgeSource` / `IKnowledgeClient.IngestAsync` push API.
 
-### WP2.5 Retrieval + ACL
+### WP2.5 Retrieval + ACL — done
 `Retriever`: embed query with the KB's embedding model alias, cosine top-k, threshold, metadata filter DSL (`eq/in/range`), ACL filter = chunk `acl_tags` ⊆ caller claims (tag format `claimType:value`, `*` public). `POST /api/kb/{id}/search` returns chunks with scores and `Citation`s.
 
 ### WP2.6 Document chat panel + `IKnowledgeClient`

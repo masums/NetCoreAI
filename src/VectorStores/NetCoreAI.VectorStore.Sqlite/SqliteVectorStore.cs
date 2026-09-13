@@ -200,12 +200,10 @@ public sealed class SqliteVectorStore : IVectorStore, IDisposable
             return false;
         }
 
-        if (filter.CallerTags is { } tags)
-        {
-            return acl.Contains("*") || acl.Any(t => tags.Contains(t, StringComparer.OrdinalIgnoreCase));
-        }
-
-        return true;
+        // One implementation of the rule, shared with everything else that reasons about access: a record
+        // with no tags at all is public, which is what the ingestion pipeline writes when neither the base
+        // nor the document restricts it.
+        return AclTag.Allows(acl, filter.CallerTags);
     }
 
     private static async Task<(int Dimensions, VectorDistance Distance)> GetCollectionAsync(SqliteConnection db, string collection, CancellationToken ct)
