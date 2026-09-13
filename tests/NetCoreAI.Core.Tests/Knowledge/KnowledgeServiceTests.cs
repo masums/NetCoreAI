@@ -347,6 +347,85 @@ public class KnowledgeServiceTests : IAsyncDisposable
         Assert.Contains(RestApiDataSource.TypeName, knowledge.SourceTypes);
     }
 
+    // ---------- uploads ----------
+
+    private static MemoryStream Bytes(string text) => new MemoryStream(System.Text.Encoding.UTF8.GetBytes(text));
+
+    [Fact]
+    public async Task An_uploaded_file_is_stored_in_the_base_folder_and_becomes_searchable()
+    {
+        var (knowledge, _, vectors) = await StartAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var kb = await knowledge.CreateAsync(NewBase(), ct);
+
+        var document = await knowledge.UploadAsync(kb.Id, "holiday.txt", Bytes("Everyone gets twenty five days of holiday."), "text/plain", cancellationToken: ct);
+
+        // On disk, because the base's own file source owns this folder and will see it on the next sync.
+        Assert.True(File.Exists(Path.Combine(FileDataSource.UploadFolder(_dataDirectory, kb.Id), "holiday.txt")));
+        Assert.True(document.ChunkCount > 0);
+        Assert.True(await vectors.CountAsync(kb.Collection, ct) > 0);
+    }
+
+    [Fact]
+    public async Task Uploading_the_same_name_twice_replaces_the_document_rather_than_duplicating_it()
+    {
+        var (knowledge, _, _) = await StartAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var kb = await knowledge.CreateAsync(NewBase(), ct);
+
+        await knowledge.UploadAsync(kb.Id, "policy.txt", Bytes("The old policy grants ten days."), "text/plain", cancellationToken: ct);
+        await knowledge.UploadAsync(kb.Id, "policy.txt", Bytes("The new policy grants twenty days."), "text/plain", cancellationToken: ct);
+
+        // The id is the file name, so a corrected upload is an edit: two copies would both stay retrievable.
+        var documents = await knowledge.ListDocumentsAsync(kb.Id, cancellationToken: ct);
+        Assert.Single(documents);
+    }
+
+    [Fact]
+    public async Task An_upload_that_re_uploads_a_file_a_folder_sync_already_saw_stays_one_document()
+    {
+        var (knowledge, jobs, _) = await StartAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var kb = await knowledge.CreateAsync(NewBase(), ct);
+        WriteUpload(kb.Id, "handbook.txt", "The handbook explains the holiday policy.");
+        await knowledge.SaveSourceAsync(FileSource(kb.Id), ct);
+        await WaitAsync(jobs, (await knowledge.SyncAsync(kb.Id, cancellationToken: ct)).Id, ct);
+
+        await knowledge.UploadAsync(kb.Id, "handbook.txt", Bytes("The handbook now explains the new holiday policy."), "text/plain", cancellationToken: ct);
+
+        // The upload path and the file source must agree on a document's identity, or every upload of an
+        // already-synced file would leave a stale second copy behind.
+        Assert.Single(await knowledge.ListDocumentsAsync(kb.Id, cancellationToken: ct));
+    }
+
+    [Theory]
+    [InlineData("../../appsettings.json", "appsettings.json")]
+    [InlineData(@"C:\Windows\System32\drivers\etc\hosts", "hosts")]
+    [InlineData("notes/../secret.txt", "secret.txt")]
+    [InlineData("report.pdf.", "report.pdf")]
+    public void An_upload_name_cannot_escape_the_upload_folder(string sent, string expected) =>
+        Assert.Equal(expected, KnowledgeService.SafeFileName(sent));
+
+    [Fact]
+    public void An_upload_with_no_usable_name_is_refused_rather_than_given_one()
+    {
+        // Inventing a name would hide a broken client; the message says what the caller has to send.
+        var error = Assert.Throws<NetCoreAIException>(() => KnowledgeService.SafeFileName("   "));
+
+        Assert.Contains("fileName", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Uploading_to_a_base_that_does_not_exist_says_so()
+    {
+        var (knowledge, _, _) = await StartAsync();
+
+        var error = await Assert.ThrowsAsync<NetCoreAIException>(() =>
+            knowledge.UploadAsync("nope", "a.txt", Bytes("text"), "text/plain", cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Contains("nope", error.Message, StringComparison.Ordinal);
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_host is not null)

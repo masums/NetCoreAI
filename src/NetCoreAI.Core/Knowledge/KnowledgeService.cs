@@ -34,6 +34,9 @@ public interface IKnowledgeService
     /// <summary>Ingests one document immediately, returning when it is searchable.</summary>
     Task<KnowledgeDocument> IngestAsync(string knowledgeBaseId, SourceDocument document, string? dataSourceId = null, CancellationToken cancellationToken = default);
 
+    /// <summary>Saves an uploaded file into the base's own folder and ingests it straight away.</summary>
+    Task<KnowledgeDocument> UploadAsync(string knowledgeBaseId, string fileName, Stream content, string? contentType = null, IReadOnlyList<string>? aclTags = null, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<KnowledgeDocument>> ListDocumentsAsync(string knowledgeBaseId, string? dataSourceId = null, CancellationToken cancellationToken = default);
 
     /// <summary>Removes a document's row and its chunks, so it stops being retrievable.</summary>
@@ -259,6 +262,106 @@ internal sealed class KnowledgeService(
         var result = await pipeline.IngestAsync(knowledgeBase, document, dataSourceId, cancellationToken).ConfigureAwait(false);
         await RefreshCountsAsync(knowledgeBaseId, cancellationToken).ConfigureAwait(false);
         return result.Document;
+    }
+
+    public async Task<KnowledgeDocument> UploadAsync(
+        string knowledgeBaseId,
+        string fileName,
+        Stream content,
+        string? contentType = null,
+        IReadOnlyList<string>? aclTags = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        await Require(knowledgeBaseId, cancellationToken).ConfigureAwait(false);
+
+        var safe = SafeFileName(fileName);
+        var folder = FileDataSource.UploadFolder(options.CurrentValue.DataDirectory, knowledgeBaseId);
+        Directory.CreateDirectory(folder);
+        var path = Path.Combine(folder, safe);
+
+        // Kept on disk rather than ingested from the request stream: the base's own "files" source owns
+        // this folder, so an upload and a later folder sync converge on one document instead of two.
+        await using (var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 64 * 1024, useAsync: true))
+        {
+            await content.CopyToAsync(file, cancellationToken).ConfigureAwait(false);
+        }
+
+        var info = new FileInfo(path);
+        var source = await UploadSourceAsync(knowledgeBaseId, cancellationToken).ConfigureAwait(false);
+        logger.LogInformation("Uploaded {File} ({Bytes} bytes) into {KnowledgeBase}.", safe, info.Length, knowledgeBaseId);
+
+        // Ingested under that source with the id the source itself would give the file, so an upload and a
+        // later folder sync are the same document rather than two copies of it.
+        return await IngestAsync(knowledgeBaseId, new SourceDocument(safe, Path.GetFileNameWithoutExtension(safe))
+        {
+            FileName = safe,
+            ContentType = contentType,
+            SizeBytes = info.Length,
+            Source = path,
+            ModifiedAt = info.LastWriteTimeUtc,
+            AclTags = aclTags,
+            OpenAsync = _ => Task.FromResult<Stream>(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, useAsync: true)),
+        }, source.Id, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The file source that owns the base's upload folder, created on the first upload if it is not there.
+    /// </summary>
+    /// <remarks>
+    /// A document's identity is scoped to the source that produced it, so the upload folder needs exactly
+    /// one owner: without this, uploading a file and then syncing the folder it now sits in would leave two
+    /// documents saying the same thing, and deleting one would not stop the other being retrieved. The
+    /// source has no schedule — uploads index themselves, and the folder is only re-read when asked.
+    /// </remarks>
+    private async Task<DataSourceDefinition> UploadSourceAsync(string knowledgeBaseId, CancellationToken cancellationToken)
+    {
+        // A files source with no folder setting is the one reading the base's own upload folder; one
+        // pointed at some other folder on the server is a different thing entirely.
+        static bool ReadsTheUploadFolder(DataSourceDefinition source) =>
+            source.Type == FileDataSource.TypeName
+            && (!source.Settings.TryGetValue(FileDataSource.FolderSetting, out var folder) || folder is not { Length: > 0 });
+
+        var sources = await store.Knowledge.ListSourcesAsync(knowledgeBaseId, cancellationToken).ConfigureAwait(false);
+        if (sources.FirstOrDefault(ReadsTheUploadFolder) is { } existing)
+        {
+            return existing;
+        }
+
+        var created = new DataSourceDefinition
+        {
+            Id = Guid.NewGuid().ToString("N")[..12],
+            KnowledgeBaseId = knowledgeBaseId,
+            Name = "Uploads",
+            Type = FileDataSource.TypeName,
+        };
+
+        await store.Knowledge.UpsertSourceAsync(created, cancellationToken).ConfigureAwait(false);
+        logger.LogInformation("Created the uploads source for {KnowledgeBase} on its first upload.", knowledgeBaseId);
+        return created;
+    }
+
+    /// <summary>
+    /// A file name that cannot escape the upload folder.
+    /// </summary>
+    /// <remarks>
+    /// A browser is free to send <c>../../appsettings.json</c>, and the only safe reading of that is the
+    /// last segment with its separators and invalid characters gone. Trailing dots and spaces go too:
+    /// Windows silently strips them, which would let "a.txt." and "a.txt" name the same file under
+    /// different document ids.
+    /// </remarks>
+    internal static string SafeFileName(string? fileName)
+    {
+        var name = Path.GetFileName((fileName ?? string.Empty).Replace('\\', '/').Trim());
+        foreach (var invalid in Path.GetInvalidFileNameChars())
+        {
+            name = name.Replace(invalid, '_');
+        }
+
+        name = name.Trim('.', ' ');
+        return name is { Length: > 0 }
+            ? name
+            : throw new NetCoreAIException("The upload has no usable file name. Send one as the 'fileName' query parameter.");
     }
 
     public Task<IReadOnlyList<KnowledgeDocument>> ListDocumentsAsync(string knowledgeBaseId, string? dataSourceId = null, CancellationToken cancellationToken = default) =>

@@ -106,6 +106,15 @@ internal static class KnowledgeApi
             return Results.Ok(document);
         }).WithName("NetCoreAI.Kb.IngestText");
 
+        // Raw body rather than multipart: it is what a browser's fetch and a typed HttpClient both send
+        // most easily, and it keeps antiforgery out of an API that is already authorised by policy.
+        kb.MapPost("/{id}/documents/upload", async (string id, HttpContext http, IKnowledgeService knowledge, string? fileName = null, CancellationToken ct = default) =>
+        {
+            var name = fileName ?? http.Request.Headers["X-File-Name"].ToString();
+            var document = await knowledge.UploadAsync(id, name, http.Request.Body, http.Request.ContentType, aclTags: null, ct);
+            return Results.Ok(document);
+        }).WithName("NetCoreAI.Kb.Upload").ExcludeFromDescription();
+
         kb.MapDelete("/{id}/documents/{documentId}", async (string id, string documentId, IKnowledgeService knowledge, CancellationToken ct) =>
         {
             await knowledge.DeleteDocumentAsync(id, documentId, ct);
@@ -125,12 +134,17 @@ internal static class KnowledgeApi
             var hits = await retriever.SearchAsync(id, request.Query, request.Options, CallerTags(http.User), ct);
             return Results.Ok(new
             {
+                // The embedding is deliberately left out: a few hundred floats per hit would dwarf the
+                // passage itself, and no caller of this endpoint has anything to do with the vector.
                 results = hits.Select(h => new
                 {
                     h.Score,
                     h.Citation,
+                    ChunkId = h.Chunk.Id,
+                    h.Chunk.DocumentId,
                     Text = h.Chunk.Text,
                     h.Chunk.Metadata,
+                    h.Chunk.AclTags,
                 }),
             });
         }).WithName("NetCoreAI.Kb.Search");

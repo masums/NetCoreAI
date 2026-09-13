@@ -19,8 +19,9 @@ public static class NetCoreAIClientServiceCollectionExtensions
     public const string HttpClientName = "NetCoreAI.Client";
 
     /// <summary>
-    /// Registers a named <see cref="HttpClient"/> for a remote NetCoreAI host. <c>IAgentClient</c> and
-    /// <c>IKnowledgeClient</c> implementations are added in Phase 2/3; in-process hosts get them from <c>AddNetCoreAI()</c>.
+    /// Registers <see cref="IKnowledgeClient"/> against a remote NetCoreAI host, over a named
+    /// <see cref="HttpClient"/>. <c>IAgentClient</c> follows in Phase 3; in-process hosts get the same
+    /// interfaces from <c>AddNetCoreAI()</c> instead, so application code is identical either way.
     /// </summary>
     public static IServiceCollection AddNetCoreAIClient(this IServiceCollection services, Action<NetCoreAIClientOptions> configure)
     {
@@ -43,6 +44,10 @@ public static class NetCoreAIClientServiceCollectionExtensions
                 http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", options.ApiKey);
             }
         });
+
+        // Registered against the interface, so swapping a client app between "talks to a remote host" and
+        // "hosts NetCoreAI itself" is a change of registration and nothing else.
+        services.AddSingleton<IKnowledgeClient, HttpKnowledgeClient>();
         return services;
     }
 }

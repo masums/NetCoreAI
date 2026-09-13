@@ -86,6 +86,26 @@ Passages go in as numbered sources, and the model is told to cite them as `[1]`,
 
 When retrieval finds nothing, the model is told to say so rather than answer from memory. A confident answer with no sources is the worst thing a RAG system can produce, and it is exactly what a naive implementation does on a miss. Pass `AnswerWithoutContext` to opt out. If retrieval itself fails, the turn is still answered — ungrounded, with no citations, which is the signal.
 
+## From a separate application
+
+`IKnowledgeClient` has two implementations and one shape. In the host, `AddNetCoreAI()` registers the in-process one. In another application, point the client at the host:
+
+```csharp
+builder.Services.AddNetCoreAIClient(o =>
+{
+    o.BaseUrl = new Uri("https://myapp.example.com/netcoreai");
+    o.ApiKey = builder.Configuration["NetCoreAI:ApiKey"];
+});
+```
+
+The same calls then work, over HTTP. Two differences are inherent to the wire rather than accidental. Search results arrive without their embedding vectors, because sending a few hundred floats per hit would dwarf the passage itself and no caller has a use for them. And `callerTags` cannot be set from a client: a client declaring its own access tags could read every restricted passage by asking for `*`, so the host derives them from the API key or signed-in user and the client refuses the argument rather than ignoring it.
+
+## Uploading documents
+
+`POST /api/kb/{id}/documents/upload?fileName=handbook.pdf` takes the file as the request body. The file is written into the base's upload folder and indexed immediately, under the id the folder's own file source would give it — so an upload and a later folder sync are one document, not two. Uploading the same name again is an edit: the old chunks go before the new ones arrive.
+
+A base's first upload creates its `Uploads` file source if it has none, so the folder has exactly one owner. The name is sanitised down to its last path segment; a browser is free to send `../../appsettings.json`, and only `appsettings.json` survives that.
+
 ## Endpoints
 
 | Method | Route | Purpose |
@@ -96,6 +116,7 @@ When retrieval finds nothing, the model is told to say so rather than answer fro
 | POST | `/api/kb/{id}/sources/test` | Check a source's configuration before saving it |
 | POST | `/api/kb/{id}/ingest` | Queue a sync; returns the job |
 | GET/POST/DELETE | `/api/kb/{id}/documents` | List, push text, or remove a document |
+| POST | `/api/kb/{id}/documents/upload` | Upload a file as the request body and index it |
 | POST | `/api/kb/{id}/search` | Search, filtered by the caller's claims |
 | GET | `/api/kb/{id}/jobs` | Ingestion history for this base |
 | GET | `/api/jobs`, `/api/jobs/{id}` | Background jobs, with per-item failures |

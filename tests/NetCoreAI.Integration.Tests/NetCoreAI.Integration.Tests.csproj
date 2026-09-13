@@ -10,6 +10,7 @@
     <ProjectReference Include="../../src/Backends/NetCoreAI.Backend.Gguf/NetCoreAI.Backend.Gguf.csproj" />
     <ProjectReference Include="../../src/Backends/NetCoreAI.Backend.Onnx/NetCoreAI.Backend.Onnx.csproj" />
     <ProjectReference Include="../../src/NetCoreAI.Documents/NetCoreAI.Documents.csproj" />
+    <ProjectReference Include="../../src/NetCoreAI.Client/NetCoreAI.Client.csproj" />
     <ProjectReference Include="../NetCoreAI.Conformance/NetCoreAI.Conformance.csproj" />
   </ItemGroup>
   <ItemGroup>

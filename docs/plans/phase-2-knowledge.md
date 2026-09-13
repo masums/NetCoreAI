@@ -29,8 +29,8 @@ Abstractions added: `IVectorStore` (`UpsertAsync`, `SearchAsync(vector, k, filte
 ### WP2.5 Retrieval + ACL — done
 `Retriever`: embed query with the KB's embedding model alias, cosine top-k, threshold, metadata filter DSL (`eq/in/range`), ACL filter = chunk `acl_tags` ⊆ caller claims (tag format `claimType:value`, `*` public). `POST /api/kb/{id}/search` returns chunks with scores and `Citation`s.
 
-### WP2.6 Document chat panel + `IKnowledgeClient` — RagChatClient, citations and the knowledge pages done; the chunk debug drawer and HttpKnowledgeClient outstanding
-Dashboard page: pick KBs, chat with citations inline `[1]` → expandable source/page/snippet, "show retrieved chunks" debug drawer with scores, per-session retrieval settings. `RagChatClient` decorator that prepends retrieved context and emits `CitationContent` (custom `AIContent`) so agents in Phase 3 reuse it. `NetCoreAI.Client` gains `KnowledgeClient` (in-process + HTTP via `HttpKnowledgeClient`).
+### WP2.6 Document chat panel + `IKnowledgeClient` — RagChatClient, citations, the knowledge pages and `HttpKnowledgeClient` done; the chunk debug drawer and per-session retrieval settings outstanding
+Dashboard page: pick KBs, chat with citations inline `[1]` → expandable source/page/snippet, "show retrieved chunks" debug drawer with scores, per-session retrieval settings. `RagChatClient` decorator that prepends retrieved context and emits `CitationContent` (custom `AIContent`) so agents in Phase 3 reuse it. `NetCoreAI.Client` gains `KnowledgeClient` (in-process + HTTP via `HttpKnowledgeClient`). Ingest over HTTP needed a document-upload endpoint, which the dashboard did not have: `POST /api/kb/{id}/documents/upload` takes the file as the request body and indexes it under the id the base's own file source would give it, so an upload and a folder sync stay one document.
 
 ### WP2.7 Management UI + endpoints
 KB CRUD pages (embedding model picker limited to `Embeddings` capability, chunking config, vector store selector, access policy), data source pages, jobs page (progress, cancel, retry, failure log). Endpoints per TASKS.md.
