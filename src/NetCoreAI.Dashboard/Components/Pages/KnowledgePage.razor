@@ -99,12 +99,23 @@
                 }
             </select>
         </label>
-        <label class="wide">Folder (server path; blank uses this base's upload folder)<input name="folder" placeholder="/srv/documents/handbook" /></label>
-        <label>File pattern<input name="pattern" placeholder="*.pdf;*.docx" /></label>
-        <label class="wide">URL (REST sources)<input name="url" placeholder="https://internal/api/articles" /></label>
-        <label>Items path<input name="itemsPath" placeholder="data.items" /></label>
-        <label>Title path<input name="titlePath" placeholder="subject" /></label>
-        <label>Content path<input name="contentPath" placeholder="body" /></label>
+        @* Only the fields belonging to the chosen type are shown; the rest would be noise a reader has to
+           work out is irrelevant. The JS toggles on data-for. *@
+        <label class="wide" data-for="files">Folder (server path; blank uses this base's upload folder)<input name="folder" placeholder="/srv/documents/handbook" /></label>
+        <label data-for="files">File pattern<input name="pattern" placeholder="*.pdf;*.docx" /></label>
+        <label class="wide" data-for="rest">URL<input name="url" placeholder="https://internal/api/articles" /></label>
+        <label data-for="rest">Items path<input name="itemsPath" placeholder="data.items" /></label>
+        <label data-for="rest">Title path<input name="titlePath" placeholder="subject" /></label>
+        <label data-for="rest">Content path<input name="contentPath" placeholder="body" /></label>
+        <label data-for="sql">ADO.NET provider<input name="provider" placeholder="Npgsql" /></label>
+        <label class="wide" data-for="sql">Connection string (stored encrypted)<input name="connectionString" type="password" placeholder="Host=db;Database=support;Username=…" /></label>
+        <label class="wide" data-for="sql">Query — one row becomes one document<textarea name="query" rows="3" placeholder="SELECT id, subject, body, team, updated FROM tickets"></textarea></label>
+        <label data-for="sql">Id column<input name="idColumn" placeholder="id" /></label>
+        <label data-for="sql">Title column<input name="titleColumn" placeholder="subject" /></label>
+        <label data-for="sql">Content columns (blank uses all the rest)<input name="contentColumns" placeholder="subject,body" /></label>
+        <label data-for="sql">Access-tag column<input name="aclColumn" placeholder="team" /></label>
+        <label data-for="sql">Last-modified column<input name="modifiedColumn" placeholder="updated" /></label>
+        <label class="wide">Schedule (cron; blank means manual only)<input name="schedule" placeholder="0 3 * * *" /></label>
         <label class="wide">Access tags (comma separated; blank means everyone)<input name="aclTags" placeholder="role:hr, tenant:acme" /></label>
         <button class="btn" type="submit">Save source</button>
     </form>

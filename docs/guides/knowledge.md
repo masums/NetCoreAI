@@ -23,6 +23,8 @@ var hits = await knowledge.SearchAsync("handbook", "how much holiday do I get?")
 
 A base needs an embedding model, and only models that advertise the `Embeddings` capability are offered. The model is fixed once anything is indexed: vectors from two models are not comparable, so switching is refused with an explanation rather than silently returning nonsense from a mixed index. To change it, delete the documents or make a new base.
 
+A base's name, chunking and default retrieval settings stay editable under **Settings** on its detail panel. Chunking applies to documents ingested from then on; re-ingest a document to re-chunk it.
+
 `Chunking` decides what retrieval can return. `RecursiveStructure` is the default: headings and paragraphs are kept whole where they fit, and only an oversized paragraph falls back to sentences. `Sentence` never cuts mid-sentence, which matters when a passage is quoted back to a user. `FixedSize` is a predictable token window. `Row` keeps one chunk per row for tabular sources.
 
 ## Data sources
@@ -111,6 +113,8 @@ The same calls then work, over HTTP. Two differences are inherent to the wire ra
 `POST /api/kb/{id}/documents/upload?fileName=handbook.pdf` takes the file as the request body. The file is written into the base's upload folder and indexed immediately, under the id the folder's own file source would give it — so an upload and a later folder sync are one document, not two. Uploading the same name again is an edit: the old chunks go before the new ones arrive.
 
 A base's first upload creates its `Uploads` file source if it has none, so the folder has exactly one owner. The name is sanitised down to its last path segment; a browser is free to send `../../appsettings.json`, and only `appsettings.json` survives that.
+
+On the Knowledge page the same thing is **Upload files** under a base's documents — one request per file, so a document that fails is named rather than taking the others down with it.
 
 ## Endpoints
 

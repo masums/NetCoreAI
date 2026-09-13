@@ -30,6 +30,15 @@
     }
     return data;
   }
+  // The message the server wrote, not the ProblemDetails envelope it came in.
+  function problem(text, res) {
+    try {
+      const data = text ? JSON.parse(text) : null;
+      return (data && (data.detail || data.title || data.message)) || text || `${res.status} ${res.statusText}`;
+    } catch {
+      return text || `${res.status} ${res.statusText}`;
+    }
+  }
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   function formData(form) {
     const o = {};
@@ -285,18 +294,92 @@
     const sources = view.sources || [];
     const documents = view.documents || [];
 
-    body.innerHTML = `<h3>${esc(view.knowledgeBase.name)}</h3>
+    const kb = view.knowledgeBase;
+    const indexed = (kb.documentCount || 0) > 0;
+
+    body.innerHTML = `<h3>${esc(kb.name)}</h3>
+      <details class="kb-settings"><summary>Settings</summary>
+        <form id="kb-settings-form" class="grid-form">
+          <label>Name<input name="name" value="${esc(kb.name)}" required /></label>
+          <label>Embedding model<input value="${esc(kb.embeddingModel)}" disabled /></label>
+          <label class="wide"><small class="muted">${indexed
+            ? 'Fixed while documents are indexed: vectors from two models cannot be compared, so switching would return nonsense from a mixed index. Delete the documents to change it.'
+            : 'Can still be changed while the base is empty.'}</small></label>
+          <label>Chunking
+            <select name="strategy">${['FixedSize', 'RecursiveStructure', 'Sentence', 'Row']
+              .map((v) => `<option value="${v}"${v === kb.chunking.strategy ? ' selected' : ''}>${v}</option>`).join('')}</select></label>
+          <label>Chunk size (tokens)<input name="maxTokens" type="number" min="32" step="16" value="${kb.chunking.maxTokens}" /></label>
+          <label>Overlap (tokens)<input name="overlapTokens" type="number" min="0" step="8" value="${kb.chunking.overlapTokens}" /></label>
+          <label>Passages per question<input name="topK" type="number" min="1" max="50" value="${kb.retrieval.topK}" /></label>
+          <label>Minimum score<input name="minScore" type="number" min="0" max="1" step="0.05" value="${kb.retrieval.minScore ?? ''}" placeholder="keep everything" /></label>
+          <label class="wide">Default access tags (comma separated; blank means public)<input name="defaultAclTags" value="${esc((kb.defaultAclTags || []).join(', '))}" /></label>
+          <label class="wide"><small class="muted">Chunking applies to documents ingested from now on. Re-ingest a document to re-chunk it.</small></label>
+          <button class="btn" type="submit">Save settings</button>
+        </form>
+      </details>
       ${sources.length ? `<table><thead><tr><th>Source</th><th>Type</th><th>Last synced</th><th></th></tr></thead><tbody>${sources.map((src) => `
         <tr><td><strong>${esc(src.name)}</strong>${src.lastError ? `<br /><small class="muted">${esc(src.lastError)}</small>` : ''}</td>
         <td>${esc(src.type)}</td><td>${src.lastSyncedAt ? new Date(src.lastSyncedAt).toLocaleString() : 'never'}</td>
         <td class="actions"><button class="btn small danger" data-action="kb-delete-source" data-id="${esc(src.id)}" data-kb="${esc(id)}">Remove</button></td></tr>`).join('')}</tbody></table>`
         : '<p class="empty">No sources yet. Add one below, or push documents with IKnowledgeClient.</p>'}
       <h3>Documents (${documents.length})</h3>
+      <p><label class="btn small">Upload files<input type="file" id="kb-upload" data-kb="${esc(id)}" multiple hidden /></label>
+        <span class="muted small" id="kb-upload-status">Files are stored with this base and indexed straight away.</span></p>
       ${documents.length ? `<table><thead><tr><th>Title</th><th>Chunks</th><th>Ingested</th><th></th></tr></thead><tbody>${documents.slice(0, 50).map((doc) => `
         <tr><td>${esc(doc.title)}<br /><small class="muted mono">${esc(doc.source || doc.id)}</small></td>
         <td>${doc.chunkCount}</td><td>${new Date(doc.ingestedAt).toLocaleString()}</td>
         <td class="actions"><button class="btn small danger" data-action="kb-delete-document" data-id="${esc(doc.id)}" data-kb="${esc(id)}">Remove</button></td></tr>`).join('')}</tbody></table>`
         : '<p class="empty">Nothing ingested yet.</p>'}`;
+
+    $('#kb-settings-form')?.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const d = formData(ev.target);
+      guarded(async () => {
+        // The whole record goes back, with only the edited fields replaced: a PUT that dropped the
+        // counters or the vector store id would quietly detach the base from its own collection.
+        await call('PUT', `kb/${encodeURIComponent(id)}`, {
+          ...kb,
+          name: d.name,
+          chunking: {
+            ...kb.chunking,
+            strategy: d.strategy,
+            maxTokens: Number(d.maxTokens),
+            overlapTokens: Number(d.overlapTokens),
+          },
+          retrieval: {
+            ...kb.retrieval,
+            topK: Number(d.topK),
+            minScore: d.minScore === '' ? null : Number(d.minScore),
+          },
+          defaultAclTags: d.defaultAclTags ? d.defaultAclTags.split(',').map((t) => t.trim()).filter(Boolean) : [],
+        });
+        toast('Settings saved.');
+        openKnowledgeBase(id);
+      });
+    });
+
+    // One request per file, so a large document that fails does not take the others with it, and the
+    // status line can name the one that broke rather than saying "the upload failed".
+    $('#kb-upload')?.addEventListener('change', async (ev) => {
+      const files = [...ev.target.files];
+      const status = $('#kb-upload-status');
+      let done = 0;
+      for (const file of files) {
+        status.textContent = `Uploading ${file.name} (${done + 1} of ${files.length})…`;
+        try {
+          const res = await fetch(api(`kb/${encodeURIComponent(id)}/documents/upload?fileName=${encodeURIComponent(file.name)}`), {
+            method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file,
+          });
+          if (!res.ok) throw new Error(problem(await res.text(), res));
+          done++;
+        } catch (e) {
+          toast(`${file.name}: ${e.message}`, true);
+        }
+      }
+
+      status.textContent = `${done} of ${files.length} file(s) indexed.`;
+      if (done) { toast(`Indexed ${done} file(s).`); openKnowledgeBase(id); }
+    });
 
     const form = $('#source-form');
     if (form) form.elements.knowledgeBaseId.value = id;
@@ -306,6 +389,17 @@
   }
 
   const sourceForm = $('#source-form');
+  if (sourceForm) {
+    const typeSel = sourceForm.elements.type;
+    const showFieldsFor = () => {
+      for (const label of sourceForm.querySelectorAll('[data-for]')) {
+        label.hidden = label.dataset.for !== typeSel.value;
+      }
+    };
+    typeSel.addEventListener('change', showFieldsFor);
+    showFieldsFor();
+  }
+
   sourceForm?.addEventListener('submit', (ev) => {
     ev.preventDefault();
     const d = formData(sourceForm);
@@ -321,6 +415,10 @@
       if (d.itemsPath) settings.itemsPath = d.itemsPath;
       if (d.titlePath) settings.titlePath = d.titlePath;
       if (d.contentPath) settings.contentPath = d.contentPath;
+    } else if (d.type === 'sql') {
+      for (const k of ['provider', 'connectionString', 'query', 'idColumn', 'titleColumn', 'contentColumns', 'aclColumn', 'modifiedColumn']) {
+        if (d[k]) settings[k] = d[k];
+      }
     }
 
     guarded(async () => {
@@ -330,6 +428,7 @@
         name: d.name,
         type: d.type,
         settings,
+        schedule: d.schedule || null,
         aclTags: d.aclTags ? d.aclTags.split(',').map((t) => t.trim()).filter(Boolean) : [],
         enabled: true,
       };

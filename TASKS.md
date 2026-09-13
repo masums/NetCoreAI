@@ -95,7 +95,7 @@ Not a product phase, but required before Phase 1 can start.
 
 **Exit criterion:** Chat over a 500-page PDF set with correct citations. — *met: the nightly acceptance run scores 30/30 exact-page citations over 500 pages with nomic-embed-text, ingesting at ~350 pages/min.*
 
-- [x] Knowledge base management (§7.5.1): create KB (embedding model, chunking strategy, vector store, access policy), multiple KBs per agent — *service and API surface done; the dashboard pages land with WP2.7*
+- [x] Knowledge base management (§7.5.1): create KB (embedding model, chunking strategy, vector store, access policy), multiple KBs per agent
 - [x] Data source: file upload (§7.5.2) — PDF, DOCX, PPTX, XLSX, TXT, MD, HTML, CSV, JSON
 - [x] Data source: SQL database — connection via host `DbContext`/connection string, table/view/query selection, column mapping, scheduled sync, row-level change detection — *the host registers its own ADO.NET provider; change detection is by content hash plus an optional modified column*
 - [x] Data source: REST API endpoint — reuse Tool definitions (Phase 3 dependency: stub minimal tool-call mechanism or sequence after §7.6 basics), JSON-path → document mapping, schedule — *plain-GET source with JSON-path mapping and cron scheduling done; re-pointing it at Tool definitions waits for §7.6*

@@ -32,8 +32,8 @@ Abstractions added: `IVectorStore` (`UpsertAsync`, `SearchAsync(vector, k, filte
 ### WP2.6 Document chat panel + `IKnowledgeClient` — done
 Dashboard page: pick KBs, chat with citations inline `[1]` → expandable source/page/snippet, "show retrieved chunks" debug drawer with scores, per-session retrieval settings. `RagChatClient` decorator that prepends retrieved context and emits `CitationContent` (custom `AIContent`) so agents in Phase 3 reuse it. `NetCoreAI.Client` gains `KnowledgeClient` (in-process + HTTP via `HttpKnowledgeClient`). Ingest over HTTP needed a document-upload endpoint, which the dashboard did not have: `POST /api/kb/{id}/documents/upload` takes the file as the request body and indexes it under the id the base's own file source would give it, so an upload and a folder sync stay one document.
 
-### WP2.7 Management UI + endpoints
-KB CRUD pages (embedding model picker limited to `Embeddings` capability, chunking config, vector store selector, access policy), data source pages, jobs page (progress, cancel, retry, failure log). Endpoints per TASKS.md.
+### WP2.7 Management UI + endpoints — done
+KB CRUD pages (embedding model picker limited to `Embeddings` capability, chunking config, vector store selector, access policy), data source pages, jobs page (progress, cancel, retry, failure log). Endpoints per TASKS.md. The source form shows only the fields the chosen type uses, the embedding model is shown read-only once a base is indexed with the reason it cannot change, and documents can be uploaded from the base's own panel.
 
 ### WP2.8 Acceptance run — done (generated 500-page corpus rather than sourced public-domain PDFs; see the test)
 Fixture: 500 pages of public-domain PDFs + a QA sheet of 30 questions with expected page citations; integration test asserts ≥ 80 % citation hit rate with a GGUF embedding model (nomic-embed-text), nightly job.

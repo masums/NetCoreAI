@@ -114,6 +114,49 @@ public sealed class KnowledgeApiTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_bases_chunking_and_retrieval_settings_can_be_edited()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await _client.PostAsJsonAsync("/netcoreai/api/kb", new { id = "handbook", name = "Handbook", embeddingModel = "embed" }, ct);
+        var before = (await _client.GetFromJsonAsync<JsonElement>("/netcoreai/api/kb/handbook", ct)).GetProperty("knowledgeBase");
+
+        // The settings form sends the whole record back with the edited fields replaced, so this is the
+        // shape the endpoint actually receives.
+        var edited = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(new
+        {
+            id = "handbook",
+            name = "Employee handbook",
+            embeddingModel = before.GetProperty("embeddingModel").GetString(),
+            vectorStoreId = before.GetProperty("vectorStoreId").GetString(),
+            chunking = new { strategy = "Sentence", maxTokens = 256, overlapTokens = 32, minTokens = 16 },
+            retrieval = new { topK = 8, minScore = 0.5 },
+            defaultAclTags = new[] { "role:hr" },
+        }));
+
+        var response = await _client.PutAsJsonAsync("/netcoreai/api/kb/handbook", edited, ct);
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync(ct));
+
+        var after = (await _client.GetFromJsonAsync<JsonElement>("/netcoreai/api/kb/handbook", ct)).GetProperty("knowledgeBase");
+        Assert.Equal("Employee handbook", after.GetProperty("name").GetString());
+        Assert.Equal("Sentence", after.GetProperty("chunking").GetProperty("strategy").GetString());
+        Assert.Equal(256, after.GetProperty("chunking").GetProperty("maxTokens").GetInt32());
+        Assert.Equal(8, after.GetProperty("retrieval").GetProperty("topK").GetInt32());
+        Assert.Equal("role:hr", after.GetProperty("defaultAclTags")[0].GetString());
+    }
+
+    [Fact]
+    public async Task The_knowledge_page_offers_the_fields_each_source_type_needs()
+    {
+        var html = await _client.GetStringAsync("/netcoreai/knowledge", TestContext.Current.CancellationToken);
+
+        // A SQL source is unusable without these, and shipping the source with no way to configure it
+        // would leave it reachable only through the API.
+        Assert.Contains("name=\"connectionString\"", html, StringComparison.Ordinal);
+        Assert.Contains("name=\"query\"", html, StringComparison.Ordinal);
+        Assert.Contains("name=\"schedule\"", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Jobs_can_be_listed_and_an_unknown_one_is_not_found()
     {
         var ct = TestContext.Current.CancellationToken;
