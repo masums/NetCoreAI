@@ -100,6 +100,7 @@ public class SupportBot(IAgentClient agents)
 | `NetCoreAI.Core` | Model registry, hardware probe, downloader, RAG pipeline, tool & agent engine |
 | `NetCoreAI.Dashboard` | Embedded management UI and management API |
 | `NetCoreAI.Client` | `IAgentClient`, `IKnowledgeClient` — in-process or over HTTP |
+| `NetCoreAI.Documents` | Document extractors: PDF, DOCX, PPTX, XLSX, HTML (text, Markdown, CSV and JSON need no extra package) |
 | `NetCoreAI.Backend.Gguf` | LLamaSharp provider; `.Cuda12` / `.Vulkan` add GPU native backends |
 | `NetCoreAI.Backend.Onnx` | ONNX Runtime GenAI provider (CPU / DirectML / CUDA) |
 | `NetCoreAI.Backend.Safetensors` | Convert-on-import (to GGUF/ONNX) and, later, native execution |

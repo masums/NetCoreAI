@@ -4,6 +4,7 @@
     <Project Path="src/NetCoreAI.Client/NetCoreAI.Client.csproj" />
     <Project Path="src/NetCoreAI.Core/NetCoreAI.Core.csproj" />
     <Project Path="src/NetCoreAI.Dashboard/NetCoreAI.Dashboard.csproj" />
+    <Project Path="src/NetCoreAI.Documents/NetCoreAI.Documents.csproj" />
     <Project Path="src/NetCoreAI/NetCoreAI.csproj" />
     <Project Path="src/Storage/NetCoreAI.Storage.Sqlite/NetCoreAI.Storage.Sqlite.csproj" />
     <Project Path="src/VectorStores/NetCoreAI.VectorStore.Sqlite/NetCoreAI.VectorStore.Sqlite.csproj" />

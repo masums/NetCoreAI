@@ -12,6 +12,8 @@
     <ProjectReference Include="../NetCoreAI.Conformance/NetCoreAI.Conformance.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The extractor tests build real .docx/.xlsx files rather than committing binary fixtures. -->
+    <PackageReference Include="DocumentFormat.OpenXml" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
   </ItemGroup>
 </Project>

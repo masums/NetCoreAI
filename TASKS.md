@@ -96,7 +96,7 @@ Not a product phase, but required before Phase 1 can start.
 **Exit criterion:** Chat over a 500-page PDF set with correct citations.
 
 - [ ] Knowledge base management (§7.5.1): create KB (embedding model, chunking strategy, vector store, access policy), multiple KBs per agent
-- [ ] Data source: file upload (§7.5.2) — PDF, DOCX, PPTX, XLSX, TXT, MD, HTML, CSV, JSON
+- [ ] Data source: file upload (§7.5.2) — PDF, DOCX, PPTX, XLSX, TXT, MD, HTML, CSV, JSON — *every extractor done; the file data source that feeds them lands with WP2.4*
 - [ ] Data source: SQL database — connection via host `DbContext`/connection string, table/view/query selection, column mapping, scheduled sync, row-level change detection
 - [ ] Data source: REST API endpoint — reuse Tool definitions (Phase 3 dependency: stub minimal tool-call mechanism or sequence after §7.6 basics), JSON-path → document mapping, schedule
 - [ ] Data source: host-provided `IKnowledgeSource` for programmatic push

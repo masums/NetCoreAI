@@ -220,6 +220,9 @@ public class IngestionPipelineTests : IAsyncDisposable
     /// <summary>Plain-text extractor standing in for the real ones, with "--- page N ---" markers for paging.</summary>
     private sealed class TextExtractor : IDocumentExtractor
     {
+        // Outranks the real plain-text extractor Core registers, so these tests exercise paged sections.
+        public int Priority => 100;
+
         public bool CanHandle(string fileName, string? contentType) =>
             fileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) || contentType == "text/plain";
 

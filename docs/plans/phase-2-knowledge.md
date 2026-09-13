@@ -20,7 +20,7 @@ Abstractions added: `IVectorStore` (`UpsertAsync`, `SearchAsync(vector, k, filte
 ### WP2.2 Ingestion pipeline core — done
 `IngestionPipeline` composed from DI-registered stages; `IBackgroundJobRunner` (channel-based, persisted `Jobs` rows, progress %, retry with backoff, failure log, cancellation, survives restart by re-queueing `Running` jobs at startup); content-hash dedup (`Documents.ContentHash`), re-index only changed docs; chunkers: `FixedSizeChunker` (tokens + overlap, tokenizer from `Microsoft.ML.Tokenizers`), `RecursiveStructureChunker` (headings → paragraphs → sentences), `SentenceChunker`, `RowChunker`; chunk metadata record. Unit tests with golden files.
 
-### WP2.3 Extractors (file upload source)
+### WP2.3 Extractors (file upload source) — extractors done; FileDataSource moves to WP2.4 with the other sources
 `IDocumentExtractor` implementations: PDF (PdfPig), DOCX/PPTX/XLSX (Open XML SDK), TXT/MD, HTML (AngleSharp → text with heading structure), CSV/JSON (row/object per document). `FileDataSource` with chunked upload endpoint, stored under `{DataDirectory}/kb/{kbId}/files`. OCR deferred to P1.
 
 ### WP2.4 SQL and REST data sources

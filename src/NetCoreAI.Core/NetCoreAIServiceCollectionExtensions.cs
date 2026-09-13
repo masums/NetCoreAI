@@ -97,6 +97,10 @@ public static class NetCoreAIServiceCollectionExtensions
         services.TryAddSingleton<BackgroundJobRunner>();
         services.TryAddSingleton<IBackgroundJobRunner>(sp => sp.GetRequiredService<BackgroundJobRunner>());
         services.AddHostedService(sp => sp.GetRequiredService<BackgroundJobRunner>());
+        // Formats that need no third-party dependency; NetCoreAI.Documents adds PDF, Office and HTML.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IDocumentExtractor, PlainTextExtractor>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IDocumentExtractor, CsvExtractor>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IDocumentExtractor, JsonExtractor>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IChunker, RecursiveStructureChunker>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IChunker, FixedSizeChunker>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IChunker, SentenceChunker>());

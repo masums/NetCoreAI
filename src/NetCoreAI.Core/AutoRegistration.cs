@@ -14,6 +14,7 @@ internal static class AutoRegistration
         ("NetCoreAI.Storage.Sqlite", "NetCoreAI.SqliteStorageExtensions", "AddSqliteStorage"),
         ("NetCoreAI.VectorStore.Sqlite", "NetCoreAI.SqliteVectorStoreExtensions", "AddSqliteVectorStore"),
         ("NetCoreAI.Dashboard", "NetCoreAI.DashboardServiceCollectionExtensions", "AddNetCoreAIDashboard"),
+        ("NetCoreAI.Documents", "NetCoreAI.DocumentsExtensions", "AddDocumentExtractors"),
     ];
 
     public static void Apply(NetCoreAIBuilder builder)

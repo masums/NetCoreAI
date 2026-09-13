@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- OOXML0001: IPackageProperties is flagged experimental by the SDK. It is the only way to read
+         document metadata (author, subject, modified), and the members used here have been stable
+         across major versions; the alternative is shipping no metadata at all. -->
+    <NoWarn>$(NoWarn);OOXML0001</NoWarn>
+    <Description>NetCoreAI document extractors: PDF (PdfPig), DOCX/PPTX/XLSX (Open XML) and HTML (AngleSharp). Plain text, Markdown, CSV and JSON are handled by NetCoreAI.Core with no extra dependencies.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../NetCoreAI.Core/NetCoreAI.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="PdfPig" />
+    <PackageReference Include="DocumentFormat.OpenXml" />
+    <PackageReference Include="AngleSharp" />
+  </ItemGroup>
+</Project>
