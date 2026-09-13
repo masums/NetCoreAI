@@ -14,6 +14,35 @@ public sealed class CitationContent(IReadOnlyList<Citation> citations) : AIConte
     public IReadOnlyList<Citation> Citations { get; } = citations;
 }
 
+/// <summary>One retrieved passage exactly as it went to the model, for tuning retrieval.</summary>
+/// <param name="Ordinal">The number the passage was given in the prompt, so <c>[2]</c> lines up with it.</param>
+/// <param name="DocumentId">Document the passage came from.</param>
+/// <param name="Title">Document title, as the citation shows it.</param>
+/// <param name="Score">Similarity to the query, which is the number a threshold is set against.</param>
+/// <param name="Text">The whole chunk, not the shortened snippet a citation carries.</param>
+public sealed record RetrievedPassage(int Ordinal, string DocumentId, string Title, float Score, string Text)
+{
+    public int? Page { get; init; }
+
+    public string? Section { get; init; }
+
+    public string? KnowledgeBaseId { get; init; }
+}
+
+/// <summary>
+/// The passages retrieved for a turn, attached only when the caller asked for them.
+/// </summary>
+/// <remarks>
+/// Separate from <see cref="CitationContent"/> because it is a different audience: citations are for the
+/// person reading the answer, this is for the person deciding whether the chunk size and the score
+/// threshold are right. Sending whole chunks on every turn would multiply the size of a response for
+/// nobody's benefit, so it is off unless <see cref="RagOptions.IncludeRetrievedPassages"/> is set.
+/// </remarks>
+public sealed class RetrievedContext(IReadOnlyList<RetrievedPassage> passages) : AIContent
+{
+    public IReadOnlyList<RetrievedPassage> Passages { get; } = passages;
+}
+
 /// <summary>How retrieved context is put in front of the model.</summary>
 public sealed record RagOptions
 {
@@ -34,6 +63,12 @@ public sealed record RagOptions
 
     /// <summary>Say so when nothing was retrieved, rather than letting the model answer from memory.</summary>
     public bool AnswerWithoutContext { get; init; }
+
+    /// <summary>
+    /// Attach the whole retrieved passages, with their scores, as <see cref="RetrievedContext"/>. Off by
+    /// default: it is a tuning aid, and the passages are far larger than the answer they produced.
+    /// </summary>
+    public bool IncludeRetrievedPassages { get; init; }
 }
 
 /// <summary>
@@ -50,12 +85,16 @@ internal sealed class RagChatClient(IChatClient inner, IRetriever retriever, Rag
     {
         ArgumentNullException.ThrowIfNull(messages);
 
-        var (prepared, citations) = await PrepareAsync(messages, cancellationToken).ConfigureAwait(false);
+        var (prepared, hits) = await PrepareAsync(messages, cancellationToken).ConfigureAwait(false);
         var response = await base.GetResponseAsync(prepared, chatOptions, cancellationToken).ConfigureAwait(false);
 
-        if (citations.Count > 0)
+        if (hits.Count > 0)
         {
-            response.Messages[^1].Contents.Add(new CitationContent(citations));
+            response.Messages[^1].Contents.Add(new CitationContent([.. hits.Select(h => h.Citation)]));
+            if (options.IncludeRetrievedPassages)
+            {
+                response.Messages[^1].Contents.Add(new RetrievedContext(Passages(hits)));
+            }
         }
 
         return response;
@@ -68,12 +107,17 @@ internal sealed class RagChatClient(IChatClient inner, IRetriever retriever, Rag
     {
         ArgumentNullException.ThrowIfNull(messages);
 
-        var (prepared, citations) = await PrepareAsync(messages, cancellationToken).ConfigureAwait(false);
+        var (prepared, hits) = await PrepareAsync(messages, cancellationToken).ConfigureAwait(false);
 
         // Sources first: the UI can render them beside the answer as it streams rather than after it ends.
-        if (citations.Count > 0)
+        if (hits.Count > 0)
         {
-            yield return new ChatResponseUpdate { Contents = [new CitationContent(citations)] };
+            yield return new ChatResponseUpdate { Contents = [new CitationContent([.. hits.Select(h => h.Citation)])] };
+
+            if (options.IncludeRetrievedPassages)
+            {
+                yield return new ChatResponseUpdate { Contents = [new RetrievedContext(Passages(hits))] };
+            }
         }
 
         await foreach (var update in base.GetStreamingResponseAsync(prepared, chatOptions, cancellationToken).ConfigureAwait(false))
@@ -82,8 +126,17 @@ internal sealed class RagChatClient(IChatClient inner, IRetriever retriever, Rag
         }
     }
 
-    /// <summary>Retrieves for the latest user message and returns the messages to send, plus the citations.</summary>
-    private async Task<(List<ChatMessage> Messages, IReadOnlyList<Citation> Citations)> PrepareAsync(IEnumerable<ChatMessage> messages, CancellationToken cancellationToken)
+    /// <summary>The retrieved chunks as passages, carrying the whole text rather than a citation's snippet.</summary>
+    private static IReadOnlyList<RetrievedPassage> Passages(IReadOnlyList<RetrievedChunk> hits) =>
+        [.. hits.Select(h => new RetrievedPassage(h.Citation.Ordinal, h.Citation.DocumentId, h.Citation.Title, h.Score, h.Chunk.Text)
+        {
+            Page = h.Citation.Page,
+            Section = h.Citation.Section,
+            KnowledgeBaseId = h.Citation.KnowledgeBaseId,
+        })];
+
+    /// <summary>Retrieves for the latest user message and returns the messages to send, plus what it found.</summary>
+    private async Task<(List<ChatMessage> Messages, IReadOnlyList<RetrievedChunk> Hits)> PrepareAsync(IEnumerable<ChatMessage> messages, CancellationToken cancellationToken)
     {
         var list = messages.ToList();
         if (options.KnowledgeBaseIds.Count == 0)
@@ -124,7 +177,7 @@ internal sealed class RagChatClient(IChatClient inner, IRetriever retriever, Rag
         };
 
         grounded.AddRange(list);
-        return (grounded, [.. hits.Select(h => h.Citation)]);
+        return (grounded, hits);
     }
 
     /// <summary>

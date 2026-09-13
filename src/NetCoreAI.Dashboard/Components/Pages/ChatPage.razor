@@ -64,6 +64,14 @@
             {
                 <label class="checkbox"><input type="checkbox" class="kb-pick" value="@kb.Id" /> @kb.Name <span class="muted">(@kb.DocumentCount doc)</span></label>
             }
+
+            @* Named nothing, so the parameters collector below cannot mistake these for model parameters. *@
+            <h2>Retrieval</h2>
+            <p class="muted small">These apply to this chat only, and take effect on the next message.</p>
+            <label>Passages per question <input id="r-topk" type="number" step="1" min="1" max="50" placeholder="5" /></label>
+            <label>Minimum score <input id="r-minscore" type="number" step="0.05" min="0" max="1" placeholder="0.35" /></label>
+            <label class="checkbox"><input type="checkbox" id="r-debug" /> Show retrieved chunks</label>
+            <p class="muted small">Shows every passage retrieved, with its score, under the answer — including ones the model ignored. Raise the minimum score when passages that are merely on-topic crowd out the right one.</p>
         }
     </aside>
 </div>

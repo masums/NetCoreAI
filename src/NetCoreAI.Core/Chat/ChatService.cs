@@ -25,6 +25,12 @@ public sealed record ChatRequest
     public RetrievalOptions? Retrieval { get; init; }
 
     /// <summary>
+    /// Send the passages retrieval found, with their scores, as a <c>retrieval</c> event. For tuning chunk
+    /// size and thresholds; off by default because whole passages dwarf the answer they produced.
+    /// </summary>
+    public bool IncludeRetrievedPassages { get; init; }
+
+    /// <summary>
     /// Access tags of the person asking. Empty means public documents only; null means no filtering,
     /// which is for system callers.
     /// </summary>
@@ -42,7 +48,12 @@ public sealed record ChatStreamEvent(string Type, string? Text = null, ChatSessi
     /// <summary>Sources an answer is grounded in, sent before the first token so the UI can show them early.</summary>
     public const string CitationsType = "citations";
 
+    /// <summary>The passages behind those sources, with scores. Only when the caller asked for them.</summary>
+    public const string RetrievalType = "retrieval";
+
     public IReadOnlyList<Citation>? Citations { get; init; }
+
+    public IReadOnlyList<RetrievedPassage>? Passages { get; init; }
 }
 
 /// <summary>Chat sessions with persistence and streaming, shared by the dashboard playground and the HTTP API.</summary>
@@ -149,6 +160,7 @@ internal sealed class ChatService(IMetadataStore store, IChatClientFactory clien
                 KnowledgeBaseIds = knowledgeBaseIds,
                 Retrieval = request.Retrieval,
                 CallerTags = request.CallerTags,
+                IncludeRetrievedPassages = request.IncludeRetrievedPassages,
             })
             : clients.Get(entry.Descriptor.Id);
         var sw = Stopwatch.StartNew();
@@ -198,6 +210,13 @@ internal sealed class ChatService(IMetadataStore store, IChatClientFactory clien
                     {
                         citations = c.Citations;
                         yield return new ChatStreamEvent(ChatStreamEvent.CitationsType) { Citations = citations };
+                    }
+                    else if (content is RetrievedContext r)
+                    {
+                        // Not persisted with the message: a tuning aid belongs to the turn that asked for
+                        // it, and storing whole passages beside every answer would grow the database for
+                        // something almost nobody reads twice.
+                        yield return new ChatStreamEvent(ChatStreamEvent.RetrievalType) { Passages = r.Passages };
                     }
                 }
             }

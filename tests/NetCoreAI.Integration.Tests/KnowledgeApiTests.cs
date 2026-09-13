@@ -98,6 +98,22 @@ public sealed class KnowledgeApiTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_chat_page_offers_retrieval_settings_once_there_is_a_base_to_search()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // Nothing to retrieve from, so nothing to tune: the controls would only be confusing.
+        Assert.DoesNotContain("id=\"r-debug\"", await _client.GetStringAsync("/netcoreai/chat", ct), StringComparison.Ordinal);
+
+        await _client.PostAsJsonAsync("/netcoreai/api/kb", new { id = "handbook", name = "Handbook", embeddingModel = "embed" }, ct);
+
+        var html = await _client.GetStringAsync("/netcoreai/chat", ct);
+        Assert.Contains("id=\"r-topk\"", html, StringComparison.Ordinal);
+        Assert.Contains("id=\"r-minscore\"", html, StringComparison.Ordinal);
+        Assert.Contains("id=\"r-debug\"", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Jobs_can_be_listed_and_an_unknown_one_is_not_found()
     {
         var ct = TestContext.Current.CancellationToken;

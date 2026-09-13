@@ -84,6 +84,12 @@ var citations = response.Messages[^1].Contents.OfType<CitationContent>().SelectM
 
 Passages go in as numbered sources, and the model is told to cite them as `[1]`, `[2]`. Citations stream before the first token, so the UI can show sources beside an answer as it is written.
 
+### Tuning what gets retrieved
+
+The chat page's Retrieval panel sets how many passages a question pulls and the score below which a passage is dropped, for that chat only. Ticking **Show retrieved chunks** puts every retrieved passage under the answer with its score and its whole text — including the ones the model ignored, which is the point: a chunk that should have been retrieved and was not is visible by its absence, and a chunk cut through the middle of the answer is visible by where it starts.
+
+Programmatically that is `RagOptions.IncludeRetrievedPassages`, which attaches a `RetrievedContext` alongside the citations. It is off by default because whole passages are far larger than the answer they produced, and it is not persisted with the message: a tuning aid belongs to the turn that asked for it.
+
 When retrieval finds nothing, the model is told to say so rather than answer from memory. A confident answer with no sources is the worst thing a RAG system can produce, and it is exactly what a naive implementation does on a miss. Pass `AnswerWithoutContext` to opt out. If retrieval itself fails, the turn is still answered — ungrounded, with no citations, which is the signal.
 
 ## From a separate application

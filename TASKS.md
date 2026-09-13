@@ -108,7 +108,7 @@ Not a product phase, but required before Phase 1 can start.
 - [x] `IVectorStore` abstraction + SQLite (sqlite-vec) implementation, zero-config
 - [x] Retrieval (§7.5.4): cosine similarity, top-k, score threshold, metadata filters
 - [x] ACL-filtered retrieval by caller claims
-- [ ] Document chat panel (§7.5.5): citations (source/page/snippet) inline + expandable, "show retrieved chunks" debug view, per-session retrieval settings — *knowledge-base picker and expandable citations done; the retrieved-chunk debug drawer and per-session retrieval settings are outstanding*
+- [x] Document chat panel (§7.5.5): citations (source/page/snippet) inline + expandable, "show retrieved chunks" debug view, per-session retrieval settings
 - [x] `IKnowledgeClient` for programmatic ingest/search (C# client surface) — *in-process and HTTP (`NetCoreAI.Client`); remote search returns no embedding vectors, and access tags come from the host rather than the client*
 - [x] `GET/POST/PUT/DELETE /api/kb`, `/api/kb/{id}/sources`, `/api/kb/{id}/ingest`, `/api/kb/{id}/search`, `/api/kb/{id}/jobs` endpoints
 

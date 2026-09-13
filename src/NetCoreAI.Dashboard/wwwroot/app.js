@@ -575,6 +575,15 @@
       for (const el of params.querySelectorAll('[name]')) el.value = p[el.name] ?? '';
       setSession(id);
     }
+    // Left null unless something was typed, so the base's own defaults keep applying.
+    function retrievalSettings() {
+      const topK = Number($('#r-topk')?.value);
+      const minScore = Number($('#r-minscore')?.value);
+      const r = {};
+      if (Number.isFinite(topK) && topK > 0) r.topK = topK;
+      if ($('#r-minscore')?.value !== '' && Number.isFinite(minScore)) r.minScore = minScore;
+      return Object.keys(r).length ? r : null;
+    }
     function currentParams() {
       const p = {};
       for (const el of params.querySelectorAll('[name]')) { if (el.value !== '') p[el.name] = el.type === 'number' ? Number(el.value) : el.value; }
@@ -602,6 +611,8 @@
 
             // Ticked bases ground this turn; none means the model answers on its own.
             knowledgeBaseIds: $$('.kb-pick:checked').map((c) => c.value),
+            retrieval: retrievalSettings(),
+            includeRetrievedPassages: $('#r-debug')?.checked === true,
           }),
         });
         if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
@@ -618,6 +629,7 @@
             if (ev === 'session') { if (!sessionId) { setSession(data.session.id); history.replaceState(null, '', `?session=${data.session.id}`); const li = document.createElement('li'); li.dataset.id = data.session.id; li.className = 'active'; li.innerHTML = `<a href="#" data-session="${data.session.id}">${esc(data.session.title)}</a><small class="muted">just now</small>`; $('#session-list').prepend(li); } }
             else if (ev === 'delta') { acc += data.text; botDiv.querySelector('.bubble').innerHTML = render(acc); messagesEl.scrollTop = messagesEl.scrollHeight; }
             else if (ev === 'citations') { renderCitations(botDiv, data.citations); }
+            else if (ev === 'retrieval') { renderPassages(botDiv, data.passages); }
             else if (ev === 'done') {
               updateMeta(botDiv, { ...data.message, raw: data.message.content });
 
@@ -650,6 +662,29 @@
           return `<div class="citation"><strong>[${c.ordinal}] ${esc(c.title)}</strong>${where ? ` <span class="muted">${where}</span>` : ''}
             <div class="muted small">${esc(c.snippet || '')}</div></div>`;
         }).join('');
+    }
+
+    // Every passage retrieval found, including the ones the answer ignored: the point is to see what the
+    // model was given, so a chunk that should have been retrieved and was not is visible by its absence.
+    function renderPassages(div, passages) {
+      if (!passages || !passages.length) return;
+      let box = div.querySelector('.passages');
+      if (!box) { box = document.createElement('details'); box.className = 'passages'; div.appendChild(box); }
+      box.innerHTML = `<summary>Retrieved chunks (${passages.length})</summary>` +
+        passages.map((p) => {
+          const where = p.page ? `page ${p.page}` : (p.section ? esc(p.section) : '');
+          return `<div class="citation"><strong>[${p.ordinal}] ${esc(p.title)}</strong>
+            <span class="muted small">score ${p.score.toFixed(3)}${where ? ` · ${where}` : ''}</span>
+            <pre class="small">${esc(p.text || '')}</pre></div>`;
+        }).join('');
+    }
+
+    // Remembered so a tuning session is not retyped on every reload; per browser, never sent anywhere else.
+    for (const el of [$('#r-topk'), $('#r-minscore'), $('#r-debug')].filter(Boolean)) {
+      const key = `netcoreai.retrieval.${el.id}`;
+      const saved = localStorage.getItem(key);
+      if (saved !== null) { if (el.type === 'checkbox') el.checked = saved === 'true'; else el.value = saved; }
+      el.addEventListener('change', () => localStorage.setItem(key, el.type === 'checkbox' ? el.checked : el.value));
     }
 
     chatForm.addEventListener('submit', (ev) => { ev.preventDefault(); send(textEl.value, textEl.dataset.replace); });

@@ -91,6 +91,30 @@ public class RagChatClientTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Retrieved_passages_are_attached_only_when_they_were_asked_for()
+    {
+        var (knowledge, rag) = await StartAsync();
+        var ct = TestContext.Current.CancellationToken;
+        await knowledge.CreateAsync(NewBase(), ct);
+        await knowledge.IngestAsync("kb1", Doc("d1", "Holiday policy", "# Holiday\n\nEvery employee receives twenty five days of paid holiday."), cancellationToken: ct);
+
+        var quiet = await rag.Create("model", new RagOptions { KnowledgeBaseIds = ["kb1"] })
+            .GetResponseAsync([new ChatMessage(ChatRole.User, "holiday")], cancellationToken: ct);
+        var verbose = await rag.Create("model", new RagOptions { KnowledgeBaseIds = ["kb1"], IncludeRetrievedPassages = true })
+            .GetResponseAsync([new ChatMessage(ChatRole.User, "holiday")], cancellationToken: ct);
+
+        // Whole passages dwarf the answer they produced, so an ordinary turn must not carry them.
+        Assert.Empty(quiet.Messages[^1].Contents.OfType<RetrievedContext>());
+
+        var passage = Assert.Single(Assert.Single(verbose.Messages[^1].Contents.OfType<RetrievedContext>()).Passages);
+        Assert.Equal("Holiday policy", passage.Title);
+        Assert.Equal(1, passage.Ordinal);
+
+        // The whole chunk, not the citation's shortened snippet: the point is to see where it was cut.
+        Assert.Contains("twenty five days", passage.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Citations_are_streamed_before_the_first_token()
     {
         var (knowledge, rag) = await StartAsync();
