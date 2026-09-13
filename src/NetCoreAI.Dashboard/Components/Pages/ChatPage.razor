@@ -1,6 +1,7 @@
 @using NetCoreAI.Chat
 @inject IModelRegistry Registry
 @inject IChatService ChatService
+@inject NetCoreAI.Knowledge.IKnowledgeService Knowledge
 
 <div class="chat-layout">
     <aside class="chat-sessions card">
@@ -50,17 +51,33 @@
         <label>Max output tokens <input name="maxOutputTokens" type="number" step="1" min="1" placeholder="model default" /></label>
         <label>Repeat / frequency penalty <input name="frequencyPenalty" type="number" step="0.05" placeholder="model default" /></label>
         <label>Seed <input name="seed" type="number" step="1" placeholder="random" /></label>
+
+        <h2>Knowledge</h2>
+        @if (_knowledgeBases.Count == 0)
+        {
+            <p class="muted small">No knowledge bases yet. Create one on the <a href="@Ctx.Url("knowledge")">Knowledge</a> page to answer from your own documents, with citations.</p>
+        }
+        else
+        {
+            <p class="muted small">Answers are grounded in the bases you pick, and every answer shows what it was drawn from.</p>
+            @foreach (var kb in _knowledgeBases)
+            {
+                <label class="checkbox"><input type="checkbox" class="kb-pick" value="@kb.Id" /> @kb.Name <span class="muted">(@kb.DocumentCount doc)</span></label>
+            }
+        }
     </aside>
 </div>
 
 @code {
     [Parameter] public DashboardContext Ctx { get; set; } = default!;
     private IReadOnlyList<ModelEntry> _chatModels = [];
+    private IReadOnlyList<KnowledgeBase> _knowledgeBases = [];
     private IReadOnlyList<ChatSession> _sessions = [];
 
     protected override async Task OnInitializedAsync()
     {
         _chatModels = (await Registry.ListAsync()).Where(m => m.Descriptor.Capabilities.Supports(ModelCapability.Chat) || m.Descriptor.Capabilities == ModelCapabilities.None).ToList();
         _sessions = await ChatService.ListSessionsAsync(null);
+        _knowledgeBases = await Knowledge.ListAsync();
     }
 }

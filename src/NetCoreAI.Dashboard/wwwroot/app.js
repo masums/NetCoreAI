@@ -75,6 +75,14 @@
       case 'download-pause': return guarded(async () => { await call('POST', `downloads/${encodeURIComponent(id)}/pause`); reload(); }, btn);
       case 'download-resume': return guarded(async () => { await call('POST', `downloads/${encodeURIComponent(id)}/resume`); watchDownloads(); }, btn);
       case 'hub-back': return location.reload();
+      case 'kb-sync': return guarded(async () => { const job = await call('POST', `kb/${encodeURIComponent(id)}/ingest`); toast('Ingestion queued.'); watchJob(job.id); }, btn);
+      case 'kb-delete': return confirm(`Delete "${name}" and everything indexed in it?`) && guarded(async () => { await call('DELETE', `kb/${encodeURIComponent(id)}`); reload(); }, btn);
+      case 'kb-open': return guarded(() => openKnowledgeBase(id), btn);
+      case 'kb-close': { const d = $('#kb-detail'); if (d) d.hidden = true; return; }
+      case 'kb-delete-source': return confirm('Remove this source and the documents it brought in?') && guarded(async () => { await call('DELETE', `kb/${encodeURIComponent(btn.dataset.kb)}/sources/${encodeURIComponent(id)}`); reload(); }, btn);
+      case 'kb-delete-document': return guarded(async () => { await call('DELETE', `kb/${encodeURIComponent(btn.dataset.kb)}/documents/${encodeURIComponent(id)}`); openKnowledgeBase(btn.dataset.kb); }, btn);
+      case 'job-cancel': return guarded(async () => { await call('POST', `jobs/${encodeURIComponent(id)}/cancel`); reload(); }, btn);
+      case 'job-retry': return guarded(async () => { await call('POST', `jobs/${encodeURIComponent(id)}/retry`); reload(); }, btn);
       case 'edit-model': return guarded(() => openModelEditor(id), btn);
       case 'close-editor': { const ed = $('#model-editor'); if (ed) ed.hidden = true; return; }
       case 'scan-orphans': return location.reload();
@@ -252,6 +260,119 @@
   // Select-all for the reclaimable files list.
   $('#orphan-all')?.addEventListener('change', (ev) => {
     $$('.orphan').forEach((c) => { c.checked = ev.target.checked; });
+  });
+
+  // ---------- knowledge ----------
+  const kbForm = $('#kb-form');
+  kbForm?.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const d = formData(kbForm);
+    guarded(async () => {
+      await call('POST', 'kb', {
+        id: d.id,
+        name: d.name,
+        embeddingModel: d.embeddingModel,
+        chunking: { strategy: d.strategy },
+      });
+      toast(`Created ${d.name}.`);
+      setTimeout(() => location.reload(), 700);
+    });
+  });
+
+  async function openKnowledgeBase(id) {
+    const view = await call('GET', `kb/${encodeURIComponent(id)}`);
+    const body = $('#kb-detail-body');
+    const sources = view.sources || [];
+    const documents = view.documents || [];
+
+    body.innerHTML = `<h3>${esc(view.knowledgeBase.name)}</h3>
+      ${sources.length ? `<table><thead><tr><th>Source</th><th>Type</th><th>Last synced</th><th></th></tr></thead><tbody>${sources.map((src) => `
+        <tr><td><strong>${esc(src.name)}</strong>${src.lastError ? `<br /><small class="muted">${esc(src.lastError)}</small>` : ''}</td>
+        <td>${esc(src.type)}</td><td>${src.lastSyncedAt ? new Date(src.lastSyncedAt).toLocaleString() : 'never'}</td>
+        <td class="actions"><button class="btn small danger" data-action="kb-delete-source" data-id="${esc(src.id)}" data-kb="${esc(id)}">Remove</button></td></tr>`).join('')}</tbody></table>`
+        : '<p class="empty">No sources yet. Add one below, or push documents with IKnowledgeClient.</p>'}
+      <h3>Documents (${documents.length})</h3>
+      ${documents.length ? `<table><thead><tr><th>Title</th><th>Chunks</th><th>Ingested</th><th></th></tr></thead><tbody>${documents.slice(0, 50).map((doc) => `
+        <tr><td>${esc(doc.title)}<br /><small class="muted mono">${esc(doc.source || doc.id)}</small></td>
+        <td>${doc.chunkCount}</td><td>${new Date(doc.ingestedAt).toLocaleString()}</td>
+        <td class="actions"><button class="btn small danger" data-action="kb-delete-document" data-id="${esc(doc.id)}" data-kb="${esc(id)}">Remove</button></td></tr>`).join('')}</tbody></table>`
+        : '<p class="empty">Nothing ingested yet.</p>'}`;
+
+    const form = $('#source-form');
+    if (form) form.elements.knowledgeBaseId.value = id;
+    const detail = $('#kb-detail');
+    detail.hidden = false;
+    detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  const sourceForm = $('#source-form');
+  sourceForm?.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const d = formData(sourceForm);
+    if (!d.knowledgeBaseId) { toast('Open a knowledge base first.', true); return; }
+
+    // Only the settings that belong to the chosen type are sent, so a file source does not carry a URL.
+    const settings = {};
+    if (d.type === 'files') {
+      if (d.folder) settings.folder = d.folder;
+      if (d.pattern) settings.pattern = d.pattern;
+    } else if (d.type === 'rest') {
+      settings.url = d.url;
+      if (d.itemsPath) settings.itemsPath = d.itemsPath;
+      if (d.titlePath) settings.titlePath = d.titlePath;
+      if (d.contentPath) settings.contentPath = d.contentPath;
+    }
+
+    guarded(async () => {
+      const source = {
+        id: crypto.randomUUID().replace(/-/g, '').slice(0, 12),
+        knowledgeBaseId: d.knowledgeBaseId,
+        name: d.name,
+        type: d.type,
+        settings,
+        aclTags: d.aclTags ? d.aclTags.split(',').map((t) => t.trim()).filter(Boolean) : [],
+        enabled: true,
+      };
+
+      // Tested before saving: a wrong folder or URL is far cheaper to find now than mid-ingest.
+      const test = await call('POST', `kb/${encodeURIComponent(d.knowledgeBaseId)}/sources/test`, source);
+      if (!test.success) { toast(test.message, true); return; }
+
+      await call('POST', `kb/${encodeURIComponent(d.knowledgeBaseId)}/sources`, source);
+      toast(`${test.message} Source saved.`);
+      setTimeout(() => location.reload(), 900);
+    });
+  });
+
+  // Follows one ingestion job until it settles.
+  function watchJob(id) {
+    if (!id) return;
+    const tick = async () => {
+      try {
+        const job = await call('GET', `jobs/${encodeURIComponent(id)}`);
+        const row = $(`#jobs-table tr[data-id="${id}"]`);
+        if (row) {
+          const bar = row.querySelector('progress');
+          if (bar) { bar.value = job.itemsDone; bar.max = job.itemsTotal || 1; }
+          const small = row.querySelector('td:nth-child(2) small');
+          if (small) small.textContent = `${job.itemsDone} of ${job.itemsTotal}${job.status ? ` - ${job.status}` : ''}`;
+        }
+        if (['Completed', 'Failed', 'Cancelled'].includes(job.state)) {
+          if (job.state === 'Completed') toast(`Ingestion finished: ${job.itemsDone} item(s), ${job.itemsFailed} failed.`);
+          if (job.state === 'Failed') toast(job.error || 'Ingestion failed.', true);
+          return location.reload();
+        }
+        setTimeout(tick, 1000);
+      } catch (e) {
+        toast(e.message || String(e), true);
+      }
+    };
+    setTimeout(tick, 600);
+  }
+
+  // Keep any running ingestion live when the page loads.
+  $$('#jobs-table tr[data-id]').forEach((row) => {
+    if (row.querySelector('.status.running, .status.queued')) watchJob(row.dataset.id);
   });
 
   // ---------- model editor ----------
@@ -472,7 +593,16 @@
       try {
         const res = await fetch(api('chat'), {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', signal: abort.signal,
-          body: JSON.stringify({ sessionId, model: modelSel.value, message: text, parameters: currentParams(), replaceFromMessageId: replaceFromMessageId || null }),
+          body: JSON.stringify({
+            sessionId,
+            model: modelSel.value,
+            message: text,
+            parameters: currentParams(),
+            replaceFromMessageId: replaceFromMessageId || null,
+
+            // Ticked bases ground this turn; none means the model answers on its own.
+            knowledgeBaseIds: $$('.kb-pick:checked').map((c) => c.value),
+          }),
         });
         if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
         const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
@@ -487,7 +617,14 @@
             const data = JSON.parse(dataLine.slice(6));
             if (ev === 'session') { if (!sessionId) { setSession(data.session.id); history.replaceState(null, '', `?session=${data.session.id}`); const li = document.createElement('li'); li.dataset.id = data.session.id; li.className = 'active'; li.innerHTML = `<a href="#" data-session="${data.session.id}">${esc(data.session.title)}</a><small class="muted">just now</small>`; $('#session-list').prepend(li); } }
             else if (ev === 'delta') { acc += data.text; botDiv.querySelector('.bubble').innerHTML = render(acc); messagesEl.scrollTop = messagesEl.scrollHeight; }
-            else if (ev === 'done') { updateMeta(botDiv, { ...data.message, raw: data.message.content }); if (data.error) toast(`Stopped early: ${data.error}`, true); }
+            else if (ev === 'citations') { renderCitations(botDiv, data.citations); }
+            else if (ev === 'done') {
+              updateMeta(botDiv, { ...data.message, raw: data.message.content });
+
+              // A reopened conversation renders citations from the stored message, so sources survive a reload.
+              if (data.message.citationsJson) { try { renderCitations(botDiv, JSON.parse(data.message.citationsJson)); } catch { /* stored badly; the answer still shows */ } }
+              if (data.error) toast(`Stopped early: ${data.error}`, true);
+            }
             else if (ev === 'error') { botDiv.querySelector('.bubble').innerHTML = `<span class="muted">Error: ${esc(data.error || 'unknown')}</span>`; toast(data.error, true); }
           }
         }
@@ -498,6 +635,23 @@
         sendBtn.disabled = false; stopBtn.hidden = true; abort = null; textEl.focus();
       }
     }
+    function renderCitations(div, citations) {
+      if (!citations || !citations.length) return;
+      let box = div.querySelector('.citations');
+      if (!box) {
+        box = document.createElement('details');
+        box.className = 'citations';
+        div.appendChild(box);
+      }
+
+      box.innerHTML = `<summary>${citations.length} source${citations.length === 1 ? '' : 's'}</summary>` +
+        citations.map((c) => {
+          const where = c.page ? `page ${c.page}` : (c.section ? esc(c.section) : '');
+          return `<div class="citation"><strong>[${c.ordinal}] ${esc(c.title)}</strong>${where ? ` <span class="muted">${where}</span>` : ''}
+            <div class="muted small">${esc(c.snippet || '')}</div></div>`;
+        }).join('');
+    }
+
     chatForm.addEventListener('submit', (ev) => { ev.preventDefault(); send(textEl.value, textEl.dataset.replace); });
     textEl.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); chatForm.requestSubmit(); } });
     stopBtn.addEventListener('click', () => abort?.abort());

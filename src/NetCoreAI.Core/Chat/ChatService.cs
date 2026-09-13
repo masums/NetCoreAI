@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.AI;
+using NetCoreAI.Knowledge;
 using Microsoft.Extensions.Logging;
 
 namespace NetCoreAI.Chat;
@@ -16,6 +17,18 @@ public sealed record ChatRequest
     public string? UserId { get; init; }
     /// <summary>Replace the conversation from this message id onward (edit-and-resend / regenerate).</summary>
     public string? ReplaceFromMessageId { get; init; }
+
+    /// <summary>Knowledge bases to answer from. Empty means answer from the model alone.</summary>
+    public IReadOnlyList<string>? KnowledgeBaseIds { get; init; }
+
+    /// <summary>Retrieval settings for this turn; the base's own defaults are used when null.</summary>
+    public RetrievalOptions? Retrieval { get; init; }
+
+    /// <summary>
+    /// Access tags of the person asking. Empty means public documents only; null means no filtering,
+    /// which is for system callers.
+    /// </summary>
+    public IReadOnlyList<string>? CallerTags { get; init; }
 }
 
 /// <summary>Streamed unit of a chat response.</summary>
@@ -25,6 +38,11 @@ public sealed record ChatStreamEvent(string Type, string? Text = null, ChatSessi
     public const string DeltaType = "delta";
     public const string DoneType = "done";
     public const string ErrorType = "error";
+
+    /// <summary>Sources an answer is grounded in, sent before the first token so the UI can show them early.</summary>
+    public const string CitationsType = "citations";
+
+    public IReadOnlyList<Citation>? Citations { get; init; }
 }
 
 /// <summary>Chat sessions with persistence and streaming, shared by the dashboard playground and the HTTP API.</summary>
@@ -39,7 +57,7 @@ public interface IChatService
     Task<string> ExportAsync(string sessionId, string format, CancellationToken cancellationToken = default);
 }
 
-internal sealed class ChatService(IMetadataStore store, IChatClientFactory clients, IModelRegistry registry, NetCoreAI.Telemetry.ICostEstimator costs, ILogger<ChatService> logger) : IChatService
+internal sealed class ChatService(IMetadataStore store, IChatClientFactory clients, IModelRegistry registry, NetCoreAI.Knowledge.IRagChatClientFactory rag, NetCoreAI.Telemetry.ICostEstimator costs, ILogger<ChatService> logger) : IChatService
 {
     private static readonly System.Text.Json.JsonSerializerOptions ExportJson = new(System.Text.Json.JsonSerializerDefaults.Web) { WriteIndented = true };
     public Task<IReadOnlyList<ChatSession>> ListSessionsAsync(string? userId, CancellationToken cancellationToken = default) => store.Sessions.ListAsync(userId, cancellationToken);
@@ -123,11 +141,20 @@ internal sealed class ChatService(IMetadataStore store, IChatClientFactory clien
             StopSequences = parameters.StopSequences?.ToList(),
         };
 
-        // 3. Stream
-        var client = clients.Get(entry.Descriptor.Id);
+        // 3. Stream. Naming knowledge bases wraps the model so the turn is answered from them, with
+        // citations; naming none leaves the plain client in place.
+        var client = request.KnowledgeBaseIds is { Count: > 0 } knowledgeBaseIds
+            ? rag.Create(entry.Descriptor.Id, new RagOptions
+            {
+                KnowledgeBaseIds = knowledgeBaseIds,
+                Retrieval = request.Retrieval,
+                CallerTags = request.CallerTags,
+            })
+            : clients.Get(entry.Descriptor.Id);
         var sw = Stopwatch.StartNew();
         var text = new System.Text.StringBuilder();
         UsageDetails? usage = null;
+        IReadOnlyList<Citation>? citations = null;
         var error = default(string);
 
         var enumerator = client.GetStreamingResponseAsync(messages, options, cancellationToken).GetAsyncEnumerator(cancellationToken);
@@ -167,6 +194,11 @@ internal sealed class ChatService(IMetadataStore store, IChatClientFactory clien
                     {
                         usage = u.Details;
                     }
+                    else if (content is CitationContent c)
+                    {
+                        citations = c.Citations;
+                        yield return new ChatStreamEvent(ChatStreamEvent.CitationsType) { Citations = citations };
+                    }
                 }
             }
         }
@@ -193,6 +225,9 @@ internal sealed class ChatService(IMetadataStore store, IChatClientFactory clien
             OutputTokens = (int?)usage?.OutputTokenCount,
             LatencyMs = sw.ElapsedMilliseconds,
             EstimatedCost = costs.Estimate(entry.Descriptor, usage?.InputTokenCount ?? 0, usage?.OutputTokenCount ?? 0),
+
+            // Persisted with the message, so reopening a conversation still shows what it was grounded in.
+            CitationsJson = citations is { Count: > 0 } ? System.Text.Json.JsonSerializer.Serialize(citations, ExportJson) : null,
         };
         await store.Sessions.AppendMessageAsync(assistant, CancellationToken.None).ConfigureAwait(false);
         await store.Sessions.UpsertAsync(session with { UpdatedAt = DateTimeOffset.UtcNow }, CancellationToken.None).ConfigureAwait(false);

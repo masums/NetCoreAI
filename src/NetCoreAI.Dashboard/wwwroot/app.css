@@ -84,4 +84,11 @@ td.small,.small{font-size:12px}
 .markdown img{max-width:100%;height:auto}
 #upload-progress{width:100%;margin-top:10px}
 
+
+/* citations under a grounded answer */
+.citations{margin-top:8px;border-left:2px solid var(--border);padding-left:10px}
+.citations summary{cursor:pointer;font-size:12px;color:var(--muted)}
+.citation{margin:8px 0;font-size:12px}
+.citation strong{font-weight:600}
+
 @media (max-width:900px){.app{grid-template-columns:1fr}.sidebar{position:static;height:auto}.chat-layout{grid-template-columns:1fr;height:auto}.chat-params{width:auto}}

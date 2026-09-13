@@ -83,6 +83,30 @@ public sealed class KnowledgeApiTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_knowledge_page_renders_and_is_in_the_navigation()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var html = await _client.GetStringAsync("/netcoreai/knowledge", ct);
+        Assert.Contains("Knowledge bases", html, StringComparison.Ordinal);
+
+        // With no embedding model registered, the page says so rather than offering a base that cannot index.
+        Assert.Contains("An embedding model is needed first", html, StringComparison.Ordinal);
+
+        var overview = await _client.GetStringAsync("/netcoreai", ct);
+        Assert.Contains("/netcoreai/knowledge", overview, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Jobs_can_be_listed_and_an_unknown_one_is_not_found()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        Assert.Empty((await _client.GetFromJsonAsync<List<JsonElement>>("/netcoreai/api/jobs", ct))!);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync("/netcoreai/api/jobs/nope", ct)).StatusCode);
+    }
+
+    [Fact]
     public async Task An_unknown_base_is_not_found()
     {
         var response = await _client.GetAsync("/netcoreai/api/kb/nope", TestContext.Current.CancellationToken);

@@ -110,6 +110,7 @@ public static class NetCoreAIServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSource, RestApiDataSource>());
         services.TryAddSingleton<IKnowledgeService, KnowledgeService>();
         services.TryAddSingleton<IRetriever, Retriever>();
+        services.TryAddSingleton<IRagChatClientFactory, RagChatClientFactory>();
         services.TryAddSingleton<IKnowledgeClient, KnowledgeClient>();
 
         // Live traffic for the overview page, and per-call cost from connection pricing.
