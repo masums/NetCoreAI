@@ -73,7 +73,7 @@ Tests: metadata parser unit tests on hand-built headers; conformance against a <
 ### WP1.9 Model Hub (Model Hub group) — done except SignalR progress, README render and chunked upload
 `HuggingFaceClient` (search with filters, model info, file list with LFS sha256/size, README raw, gated flag, token header), `CuratedManifest` (JSON fetched from the repo `manifest/recommended.json` with embedded fallback copy), fit badge per variant, Markdig README render. `DownloadManager`: queue with priority, range requests, N parallel chunks per file, token-bucket bandwidth limit, `.part` files + JSON sidecar so it resumes after restart, SHA-256 verify vs LFS metadata, progress → SignalR hub `/netcoreai/_hubs/downloads` + persisted `Downloads` rows; pause/resume/cancel. Import: local path, chunked upload, URL; auto-detect via GGUF reader / `genai_config.json`. Endpoints `/api/hub/*`, `/api/downloads/*`, `/api/models/import`. Dashboard pages: Hub search, Recommended, model detail, downloads panel.
 
-### WP1.10 Model registry + storage management (Local Model Management group)
+### WP1.10 Model registry + storage management (Local Model Management group) — done
 Registry page (status, size, quantization, context, capability icons, last used, load/unload, set default chat/embed, aliases editor, per-model default params, tags/notes); `chatClientFactory.Get("alias")`; storage page (disk usage per model, delete with confirm, orphan scan, quota warning threshold). Endpoints `/api/models/*`.
 
 ### WP1.11 Chat playground (Chat Playground group)

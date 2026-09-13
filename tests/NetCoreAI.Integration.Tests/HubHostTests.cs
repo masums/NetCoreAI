@@ -69,6 +69,33 @@ public sealed class HubHostTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_storage_page_and_endpoint_report_the_data_directory()
+    {
+        var html = await _client.GetStringAsync("/netcoreai/storage", TestContext.Current.CancellationToken);
+        Assert.Contains("Data directory", html, StringComparison.Ordinal);
+
+        var usage = await _client.GetFromJsonAsync<JsonElement>("/netcoreai/api/storage", TestContext.Current.CancellationToken);
+        Assert.Equal(_dataDir, usage.GetProperty("dataDirectory").GetString());
+        Assert.True(usage.GetProperty("totalBytes").GetInt64() > 0, "the metadata database alone occupies space");
+        Assert.Empty(usage.GetProperty("models").EnumerateArray());
+
+        var orphans = await _client.GetFromJsonAsync<List<JsonElement>>("/netcoreai/api/storage/orphans", TestContext.Current.CancellationToken);
+        Assert.Empty(orphans!);
+    }
+
+    [Fact]
+    public async Task Deleting_a_file_outside_the_data_directory_is_refused_by_the_api()
+    {
+        var response = await _client.PostAsJsonAsync(
+            "/netcoreai/api/storage/orphans/delete",
+            new { paths = new[] { Path.Combine(Path.GetTempPath(), "netcoreai-not-ours.bin") } },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("outside the data directory", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Registered_sources_are_listed()
     {
         var sources = await _client.GetFromJsonAsync<List<JsonElement>>("/netcoreai/api/hub/sources", TestContext.Current.CancellationToken);

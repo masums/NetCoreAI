@@ -62,9 +62,9 @@ Not a product phase, but required before Phase 1 can start.
 - [ ] Import (§7.2.3): local path/upload (chunked), URL import, auto-detect format/arch/quantization/context/chat template — *server path, URL and auto-detect done; chunked browser upload not started*
 
 ### Local Model Management
-- [ ] Model registry table (§7.3.1): metadata, status, aliases (`fast`/`quality`/`embed`), per-model default params, tags/notes — *page + API done; per-model default-parameter editor still API-only*
+- [x] Model registry table (§7.3.1): metadata, status, aliases (`fast`/`quality`/`embed`), per-model default params, tags/notes
 - [x] `chatClientFactory.Get("alias")` resolution
-- [ ] Storage management (§7.3.2): configurable data dir, disk usage dashboard, delete + orphan cleanup, quota warnings
+- [x] Storage management (§7.3.2): configurable data dir, disk usage dashboard, delete + orphan cleanup, quota warnings
 
 ### Chat Playground
 - [x] Chat UI (§7.4.1): model selection with auto-load, streaming, markdown/code rendering, copy/regenerate/edit-resend/stop

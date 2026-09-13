@@ -57,4 +57,19 @@ input[type=checkbox]{width:auto;margin-right:6px}
 .chat-input{display:flex;gap:8px;align-items:flex-end;border-top:1px solid var(--border);padding-top:10px}.chat-input textarea{margin:0;resize:vertical}
 .chat-params{width:280px;overflow:auto;margin:0}.chat-params label{display:block;margin-bottom:10px;font-size:12px;color:var(--muted)}
 .cursor::after{content:"▍";animation:blink 1s steps(2) infinite}@keyframes blink{50%{opacity:0}}
+
+/* storage page + per-model editor */
+.banner{border-radius:var(--radius);padding:10px 14px;margin:0 0 14px;border:1px solid var(--border)}
+.banner.warn{background:rgba(214,158,46,.12);border-color:rgba(214,158,46,.4)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin:0}
+.stats div{margin:0}.stats dt{font-size:12px;color:var(--muted)}.stats dd{margin:2px 0 0;font-size:20px;font-weight:600}
+.grid-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px 16px;align-items:end}
+.grid-form label{display:block;font-size:12px;color:var(--muted)}
+.grid-form label.wide{grid-column:1/-1}
+.grid-form input,.grid-form textarea{margin:4px 0 0;width:100%}
+.grid-form button{justify-self:start}
+label.checkbox{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--muted)}
+label.checkbox input{width:auto;margin:0}
+td.small,.small{font-size:12px}
+
 @media (max-width:900px){.app{grid-template-columns:1fr}.sidebar{position:static;height:auto}.chat-layout{grid-template-columns:1fr;height:auto}.chat-params{width:auto}}

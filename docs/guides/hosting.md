@@ -27,6 +27,18 @@ Metadata lives in `{DataDirectory}/netcoreai.db` (SQLite, WAL). Vector data live
 
 For load-balanced deployments see [ADR-0003](../adr/0003-default-metadata-store.md): register a shared store instead (SQL Server or PostgreSQL, Phase 4) and put the data directory on shared storage. A warning is logged when several instances write to one SQLite file.
 
+### Watching disk
+
+The Storage page (and `GET /api/storage`) reports what each local model costs, what the data directory totals, and how much room is left on the volume. Remote models cost nothing locally and are left out. A model whose files have gone missing is listed as such rather than quietly dropped, which is the usual sign that a data directory moved between deployments.
+
+Set `Models.StorageQuotaWarningBytes` to be warned before the disk fills; the page also warns when free space drops below 1 GB or a tenth of what the data directory already uses, whichever is larger.
+
+### Reclaiming space
+
+`GET /api/storage/orphans` lists files under `models/` that no registered model claims — leftovers from a removed model, a manual copy, or an interrupted download (`.part` files, which can also be resumed from the Downloads panel instead). `POST /api/storage/orphans/delete` removes the ones you choose.
+
+Deletion is guarded twice, because this is the one place in NetCoreAI where a UI action removes files: a path outside the data directory is refused, and so is any path a registered model claims — including files inside a registered ONNX export folder — even if the caller's list has gone stale. To delete a model's weights, remove the model itself with `deleteFiles=true`.
+
 ## Observability
 
 Logging categories start with `NetCoreAI.`. Traces and metrics come from the `NetCoreAI` activity source and meter:

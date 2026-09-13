@@ -75,6 +75,18 @@
       case 'download-pause': return guarded(async () => { await call('POST', `downloads/${encodeURIComponent(id)}/pause`); reload(); }, btn);
       case 'download-resume': return guarded(async () => { await call('POST', `downloads/${encodeURIComponent(id)}/resume`); watchDownload(id); }, btn);
       case 'hub-back': return location.reload();
+      case 'edit-model': return guarded(() => openModelEditor(id), btn);
+      case 'close-editor': { const ed = $('#model-editor'); if (ed) ed.hidden = true; return; }
+      case 'scan-orphans': return location.reload();
+      case 'delete-orphans': {
+        const paths = $$('.orphan:checked').map((c) => c.value);
+        if (!paths.length) { toast('Select the files to delete first.', true); return; }
+        return confirm(`Delete ${paths.length} file(s)? This cannot be undone.`) && guarded(async () => {
+          const r = await call('POST', 'storage/orphans/delete', { paths });
+          toast(`Reclaimed ${fmtBytes(r.freedBytes)}.`);
+          setTimeout(() => location.reload(), 900);
+        }, btn);
+      }
       case 'download-cancel': return confirm('Cancel this download and discard its partial files?') && guarded(async () => { await call('DELETE', `downloads/${encodeURIComponent(id)}`); reload(); }, btn);
     }
   });
@@ -174,6 +186,66 @@
   // Any download still moving when the page loads keeps its row live.
   $$('#downloads-table tr[data-id]').forEach((row) => {
     if (row.querySelector('.status.downloading, .status.queued')) watchDownload(row.dataset.id);
+  });
+
+  // Select-all for the reclaimable files list.
+  $('#orphan-all')?.addEventListener('change', (ev) => {
+    $$('.orphan').forEach((c) => { c.checked = ev.target.checked; });
+  });
+
+  // ---------- model editor ----------
+  const modelForm = $('#model-form');
+  async function openModelEditor(id) {
+    const dto = await call('GET', `models/${encodeURIComponent(id)}`);
+    const d = dto.descriptor || dto;
+    const p = d.defaultParameters || {};
+    const set = (name, value) => { const el = modelForm.elements[name]; if (el) el.value = value ?? ''; };
+    set('id', d.id);
+    set('name', d.name);
+    set('contextLength', d.contextLength);
+    set('temperature', p.temperature);
+    set('topP', p.topP);
+    set('topK', p.topK);
+    set('maxOutputTokens', p.maxOutputTokens);
+    set('repeatPenalty', p.repeatPenalty);
+    set('seed', p.seed);
+    set('systemPrompt', p.systemPrompt);
+    set('stopSequences', (p.stopSequences || []).join(', '));
+    set('tags', (d.tags || []).join(', '));
+    set('notes', d.notes);
+    modelForm.elements.loadOnStartup.checked = !!d.loadOnStartup;
+    const editor = $('#model-editor');
+    editor.hidden = false;
+    editor.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  modelForm?.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const d = formData(modelForm);
+    const list = (v) => (v ? v.split(',').map((x) => x.trim()).filter(Boolean) : null);
+    // An empty field means "use the provider default", which is null rather than zero.
+    const num = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
+    guarded(async () => {
+      await call('PUT', `models/${encodeURIComponent(d.id)}`, {
+        name: d.name || null,
+        contextLength: num(d.contextLength),
+        tags: list(d.tags),
+        notes: d.notes || null,
+        loadOnStartup: !!d.loadOnStartup,
+        defaultParameters: {
+          temperature: num(d.temperature),
+          topP: num(d.topP),
+          topK: num(d.topK),
+          maxOutputTokens: num(d.maxOutputTokens),
+          repeatPenalty: num(d.repeatPenalty),
+          seed: num(d.seed),
+          systemPrompt: d.systemPrompt || null,
+          stopSequences: list(d.stopSequences),
+        },
+      });
+      toast('Saved.');
+      setTimeout(() => location.reload(), 700);
+    });
   });
 
   const aliasForm = $('#alias-form');
