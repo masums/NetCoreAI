@@ -70,16 +70,16 @@ Not a product phase, but required before Phase 1 can start.
 - [x] Chat UI (§7.4.1): model selection with auto-load, streaming, markdown/code rendering, copy/regenerate/edit-resend/stop
 - [x] Parameter side panel (temperature, top-p, top-k, max tokens, repeat penalty, seed, system prompt)
 - [x] Conversation history: persist, rename, delete, export (JSON/Markdown)
-- [ ] Token count / cost / time stats per message — *tokens + latency done; cost needs per-connection pricing (WP1.12)*
+- [x] Token count / cost / time stats per message
 
 ### Dashboard Shell, Security, Ops (P0 slice)
 - [x] Dashboard shell (Blazor per chosen tech), mounted at configurable path
 - [x] Auth: host authentication + configurable authorization policy, default deny
 - [x] Roles: `NetCoreAI.Admin`, `NetCoreAI.Builder`, `NetCoreAI.User`
-- [ ] Settings pages (§7.11 P0 subset): data directory, default models, concurrency, idle unload, telemetry opt-in, network/proxy/offline mode, provider enable/disable, execution provider preference — *general/network/providers done; default-model pickers land with the Hub*
+- [x] Settings pages (§7.11 P0 subset): data directory, default models, concurrency, idle unload, telemetry opt-in, network/proxy/offline mode, provider enable/disable, execution provider preference
 - [x] Structured logging + OpenTelemetry traces/metrics for generation calls
 - [x] `/netcoreai/health` health check (models ready, disk space)
-- [ ] Dashboard overview page: loaded models, memory, active sessions, requests/min, error rate, downloads in progress — *loaded models, memory, connections, hardware done; requests/min + error rate need the Meter wiring (WP1.12)*
+- [x] Dashboard overview page: loaded models, memory, active sessions, requests/min, error rate, downloads in progress
 
 ### Phase 1 acceptance
 - [x] A model loaded via any provider is usable through the same `IChatClient` call with no provider-specific code

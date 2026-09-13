@@ -41,6 +41,12 @@ Deletion is guarded twice, because this is the one place in NetCoreAI where a UI
 
 ## Observability
 
+Every generation is counted as it passes through the client pipeline, outside the provider so a failure is counted too, and inside function invocation so one turn with three tool calls counts as one generation. The `NetCoreAI` meter carries `netcoreai.requests` (tagged with the outcome), `netcoreai.errors`, `netcoreai.request.duration`, `netcoreai.tokens.input` / `.output`, `netcoreai.models.loaded` and `netcoreai.generations.active`; subscribe to it with OpenTelemetry for anything durable.
+
+The same events feed an in-process rolling window that the overview page reads for requests per minute, error rate, median latency and per-model traffic. It is bounded, lossy and resets with the host by design — it answers "what is happening right now" without requiring a metrics backend, and is not a substitute for one.
+
+Cost is priced per call from the `CostPer1KInputTokens` / `CostPer1KOutputTokens` recorded on a model's provider connection, and shown per message in the playground. Local models report no cost rather than zero: their price is electricity, which NetCoreAI is in no position to know.
+
 Logging categories start with `NetCoreAI.`. Traces and metrics come from the `NetCoreAI` activity source and meter:
 
 ```csharp

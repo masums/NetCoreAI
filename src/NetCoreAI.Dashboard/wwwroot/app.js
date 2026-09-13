@@ -248,6 +248,22 @@
     });
   });
 
+  // Default-model pickers on the settings page write aliases, not settings rows.
+  $$('select[data-alias]').forEach((sel) => {
+    sel.addEventListener('change', () => {
+      const alias = sel.dataset.alias;
+      guarded(async () => {
+        if (sel.value) {
+          await call('PUT', `models/aliases/${encodeURIComponent(alias)}`, { modelId: sel.value });
+          toast(`${alias} now points at ${sel.options[sel.selectedIndex].text}.`);
+        } else {
+          await call('DELETE', `models/aliases/${encodeURIComponent(alias)}`);
+          toast(`${alias} cleared.`);
+        }
+      });
+    });
+  });
+
   const aliasForm = $('#alias-form');
   aliasForm?.addEventListener('submit', (ev) => {
     ev.preventDefault();
@@ -350,6 +366,8 @@
       if (m.latencyMs != null) parts.push(`${(m.latencyMs / 1000).toFixed(1)} s`);
       if (m.outputTokens != null) parts.push(`${m.outputTokens} tok${m.latencyMs ? ` · ${(m.outputTokens / (m.latencyMs / 1000)).toFixed(1)} tok/s` : ''}`);
       if (m.inputTokens != null) parts.push(`${m.inputTokens} in`);
+      // Cost only exists for remote models, priced from their connection rates.
+      if (m.estimatedCost) parts.push(`~${Number(m.estimatedCost).toFixed(4)}`);
       if (m.estimatedCost != null) parts.push(`$${m.estimatedCost}`);
       const meta = div.querySelector('.meta');
       meta.innerHTML = parts.map((p) => `<span>${esc(p)}</span>`).join('') +

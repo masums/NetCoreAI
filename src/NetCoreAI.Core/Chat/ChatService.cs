@@ -39,7 +39,7 @@ public interface IChatService
     Task<string> ExportAsync(string sessionId, string format, CancellationToken cancellationToken = default);
 }
 
-internal sealed class ChatService(IMetadataStore store, IChatClientFactory clients, IModelRegistry registry, ILogger<ChatService> logger) : IChatService
+internal sealed class ChatService(IMetadataStore store, IChatClientFactory clients, IModelRegistry registry, NetCoreAI.Telemetry.ICostEstimator costs, ILogger<ChatService> logger) : IChatService
 {
     private static readonly System.Text.Json.JsonSerializerOptions ExportJson = new(System.Text.Json.JsonSerializerDefaults.Web) { WriteIndented = true };
     public Task<IReadOnlyList<ChatSession>> ListSessionsAsync(string? userId, CancellationToken cancellationToken = default) => store.Sessions.ListAsync(userId, cancellationToken);
@@ -192,6 +192,7 @@ internal sealed class ChatService(IMetadataStore store, IChatClientFactory clien
             InputTokens = (int?)usage?.InputTokenCount,
             OutputTokens = (int?)usage?.OutputTokenCount,
             LatencyMs = sw.ElapsedMilliseconds,
+            EstimatedCost = costs.Estimate(entry.Descriptor, usage?.InputTokenCount ?? 0, usage?.OutputTokenCount ?? 0),
         };
         await store.Sessions.AppendMessageAsync(assistant, CancellationToken.None).ConfigureAwait(false);
         await store.Sessions.UpsertAsync(session with { UpdatedAt = DateTimeOffset.UtcNow }, CancellationToken.None).ConfigureAwait(false);

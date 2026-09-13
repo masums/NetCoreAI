@@ -2,6 +2,7 @@
 @using NetCoreAI.Providers
 @inject ISettingsService SettingsService
 @inject IProviderRegistry Providers
+@inject IModelRegistry Models
 
 <header class="page-header">
     <h1>Settings</h1>
@@ -24,6 +25,40 @@ else
             <label>Memory budget (bytes, 0 = auto: 80 % RAM + VRAM) <input name="memoryBudgetBytes" type="number" min="0" value="@(_s.MemoryBudgetBytes ?? 0)" /></label>
             <label>Storage quota warning (bytes, 0 = off) <input name="storageQuotaWarningBytes" type="number" min="0" value="@(_s.StorageQuotaWarningBytes ?? 0)" /></label>
             <label><input name="telemetryEnabled" type="checkbox" checked="@_s.TelemetryEnabled" /> Emit OpenTelemetry traces and metrics (no data leaves the host unless you export it)</label>
+        </section>
+
+        <section class="card">
+            <h2>Default models</h2>
+            <p class="muted">Which model answers when code asks for one without naming it: <code>IChatClient</code> injected into your services uses <code>default</code>, and knowledge bases use <code>embed</code>. These are aliases, so pointing one at another model takes effect on the next call with no restart and no code change.</p>
+            @if (_models.Count == 0)
+            {
+                <p class="empty">No models registered yet. Download one from the <a href="@Ctx.Url("hub")">Model Hub</a> or add a <a href="@Ctx.Url("providers")">provider connection</a>.</p>
+            }
+            else
+            {
+                <label>Default chat model
+                    <select data-alias="default">
+                        <option value="">— none —</option>
+                        @foreach (var m in _chatModels)
+                        {
+                            <option value="@m.Descriptor.Id" selected="@(_aliases.TryGetValue(ModelAlias.Default, out var d) && d.ModelId == m.Descriptor.Id)">@m.Descriptor.Name</option>
+                        }
+                    </select>
+                </label>
+                <label>Default embedding model
+                    <select data-alias="embed">
+                        <option value="">— none —</option>
+                        @foreach (var m in _embeddingModels)
+                        {
+                            <option value="@m.Descriptor.Id" selected="@(_aliases.TryGetValue(ModelAlias.Embed, out var e) && e.ModelId == m.Descriptor.Id)">@m.Descriptor.Name</option>
+                        }
+                    </select>
+                </label>
+                @if (_embeddingModels.Count == 0)
+                {
+                    <p class="muted small">No model advertises embeddings. Anthropic models cannot embed at all; pair them with a local GGUF or ONNX embedding model for knowledge bases.</p>
+                }
+            }
         </section>
 
         <section class="card">
@@ -76,8 +111,22 @@ else
 }
 
 @code {
+    private IReadOnlyList<ModelEntry> _models = [];
+    private IReadOnlyList<ModelEntry> _chatModels = [];
+    private IReadOnlyList<ModelEntry> _embeddingModels = [];
+    private IReadOnlyDictionary<string, ModelAlias> _aliases = new Dictionary<string, ModelAlias>();
+
     [Parameter] public DashboardContext Ctx { get; set; } = default!;
     private NetCoreAISettings? _s;
 
-    protected override async Task OnInitializedAsync() => _s = await SettingsService.GetAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        _s = await SettingsService.GetAsync();
+        _models = await Models.ListAsync();
+        _aliases = await Models.GetAliasesAsync();
+
+        // Only offer a model for a job it says it can do: the capability flags come from the provider.
+        _chatModels = [.. _models.Where(m => m.Descriptor.Capabilities.Supports(ModelCapability.Chat))];
+        _embeddingModels = [.. _models.Where(m => m.Descriptor.Capabilities.Supports(ModelCapability.Embeddings))];
+    }
 }

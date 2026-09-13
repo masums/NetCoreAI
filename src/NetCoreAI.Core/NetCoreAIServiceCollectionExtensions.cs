@@ -13,6 +13,7 @@ using NetCoreAI.Security;
 using NetCoreAI.Settings;
 using NetCoreAI.Chat;
 using NetCoreAI.Storage;
+using NetCoreAI.Telemetry;
 
 namespace NetCoreAI;
 
@@ -88,6 +89,10 @@ public static class NetCoreAIServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<DownloadManager>());
         services.TryAddSingleton<IModelImporter, ModelImporter>();
         services.TryAddSingleton<IStorageService, StorageService>();
+
+        // Live traffic for the overview page, and per-call cost from connection pricing.
+        services.TryAddSingleton<IUsageTracker, UsageTracker>();
+        services.TryAddSingleton<ICostEstimator, CostEstimator>();
 
         services.TryAddSingleton<IConnectionManager, ConnectionManager>();
         services.TryAddSingleton<SettingsService>();

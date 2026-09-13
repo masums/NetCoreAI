@@ -10,12 +10,14 @@ namespace NetCoreAI.Clients;
 
 /// <summary>
 /// Builds the middleware pipeline around a provider's raw client. Order (outermost first):
-/// logging → OpenTelemetry → function invocation → concurrency slot → provider.
+/// logging → OpenTelemetry → metrics → function invocation → concurrency slot → provider.
 /// </summary>
 internal sealed class ChatClientFactory(
     IServiceProvider services,
     IProviderRegistry providers,
     IModelLifecycleManager lifecycle,
+    IUsageTracker usage,
+    ICostEstimator costs,
     IOptionsMonitor<NetCoreAIOptions> options,
     ILoggerFactory loggerFactory) : IChatClientFactory
 {
@@ -51,7 +53,9 @@ internal sealed class ChatClientFactory(
         var raw = provider.CreateChatClient(loaded);
 
         var builder = new ChatClientBuilder(new SlotGuardChatClient(raw, loaded, lifecycle, model.DefaultParameters))
-            .UseFunctionInvocation(loggerFactory);
+            .UseFunctionInvocation(loggerFactory)
+            // Inside function invocation, so one turn with three tool calls counts as one generation.
+            .Use(next => new MetricsChatClient(next, model, usage, costs));
 
         if (options.CurrentValue.Telemetry.Enabled)
         {

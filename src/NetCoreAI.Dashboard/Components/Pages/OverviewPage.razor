@@ -1,10 +1,13 @@
 @using NetCoreAI.Models
 @using NetCoreAI.Providers
+@using NetCoreAI.Telemetry
 @inject IModelRegistry Registry
 @inject IModelLifecycleManager Lifecycle
 @inject IHardwareProbe Hardware
 @inject IProviderRegistry Providers
 @inject IMetadataStore Store
+@inject IUsageTracker Usage
+@inject IDownloadManager Downloads
 
 <header class="page-header">
     <h1>Overview</h1>
@@ -16,6 +19,12 @@
     <div class="card stat"><span class="label">Loaded</span><span class="value">@_loaded.Count</span></div>
     <div class="card stat"><span class="label">Provider connections</span><span class="value">@_connections</span></div>
     <div class="card stat"><span class="label">Memory in use</span><span class="value">@Fmt.Bytes(_loaded.Sum(l => l.MemoryBytes))</span><span class="sub">budget left @Fmt.Bytes(Lifecycle.AvailableBudgetBytes)</span></div>
+    <div class="card stat"><span class="label">Requests / min</span><span class="value">@_usage.RequestsPerMinute.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)</span><span class="sub">@_usage.RequestsLastMinute in the last minute</span></div>
+    <div class="card stat"><span class="label">Error rate</span><span class="value">@((_usage.ErrorRate * 100).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%</span><span class="sub">@_usage.ErrorsLastHour of @_usage.RequestsLastHour in the last hour</span></div>
+    @if (_activeDownloads > 0)
+    {
+        <div class="card stat"><span class="label">Downloads</span><span class="value">@_activeDownloads</span><span class="sub"><a href="@Ctx.Url("hub")">in progress</a></span></div>
+    }
 </section>
 
 <section class="grid-2">
@@ -58,6 +67,37 @@
 </section>
 
 <section class="card">
+    <div class="toolbar">
+        <h2>Traffic (last hour)</h2>
+        <span class="muted">median latency @_usage.MedianLatencyMs.ToString("0", System.Globalization.CultureInfo.InvariantCulture) ms</span>
+    </div>
+    @if (_usage.Models.Count == 0)
+    {
+        <p class="empty">No generations yet. Counters are in-process and reset with the host; for history, subscribe to the <code>NetCoreAI</code> meter with OpenTelemetry.</p>
+    }
+    else
+    {
+        <table>
+            <thead><tr><th>Model</th><th>Requests</th><th>Errors</th><th>Median latency</th><th>Tokens in/out</th><th>Cost</th></tr></thead>
+            <tbody>
+                @foreach (var m in _usage.Models)
+                {
+                    <tr>
+                        <td class="mono">@m.ModelId</td>
+                        <td>@m.Requests</td>
+                        <td>@(m.Errors == 0 ? "–" : m.Errors.ToString(System.Globalization.CultureInfo.InvariantCulture))</td>
+                        <td>@m.MedianLatencyMs.ToString("0", System.Globalization.CultureInfo.InvariantCulture) ms</td>
+                        <td>@m.InputTokens.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) / @m.OutputTokens.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)</td>
+                        <td>@(m.Cost == 0 ? "–" : m.Cost.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture))</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        <p class="muted small">Cost is priced from each connection's per-1K-token rates; local models show no cost because their price is electricity, which NetCoreAI cannot know.</p>
+    }
+</section>
+
+<section class="card">
     <h2>Loaded models</h2>
     @if (_loaded.Count == 0)
     {
@@ -84,8 +124,13 @@
     private int _connections;
     private HardwareInfo? _hw;
 
+    private UsageSnapshot _usage = UsageSnapshot.Empty;
+    private int _activeDownloads;
+
     protected override async Task OnInitializedAsync()
     {
+        _usage = Usage.GetSnapshot();
+        _activeDownloads = (await Downloads.ListAsync()).Count(j => j.State is DownloadState.Downloading or DownloadState.Queued);
         _models = await Registry.ListAsync();
         _loaded = Lifecycle.Loaded;
         _connections = (await Store.Connections.ListAsync()).Count;

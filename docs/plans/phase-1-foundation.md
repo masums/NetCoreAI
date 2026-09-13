@@ -79,7 +79,7 @@ Registry page (status, size, quantization, context, capability icons, last used,
 ### WP1.11 Chat playground (Chat Playground group)
 Interactive-server page: model picker (auto-load if fits), streaming, Markdown + code blocks with copy button, regenerate / edit-and-resend / stop, parameter side panel bound to `ChatOptions`, system prompt, session list (persist, rename, delete, export JSON/Markdown), per-message tokens/latency/cost (cost from connection `CostPer1KTokens`). Public `POST /api/chat` (SSE) + `/api/sessions` CRUD for non-dashboard clients.
 
-### WP1.12 Settings, ops polish, acceptance (Settings/Ops + Phase 1 acceptance)
+### WP1.12 Settings, ops polish, acceptance (Settings/Ops + Phase 1 acceptance) — settings, meters and cost done; the timed onboarding run on clean VMs is outstanding
 Settings pages (general, network/proxy/offline, providers enable/disable + execution provider preference); overview page fed by `Meter` counters; OTel traces for every generation (`gen_ai.*` attributes); health check details. Then the acceptance list in TASKS.md, including the timed onboarding run on clean Windows + Linux VMs, documented in `docs/guides/getting-started.md`.
 
 ## Risks and mitigations
