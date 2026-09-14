@@ -32,7 +32,7 @@ Abstractions added: `ToolDefinition`, `IToolProvider`, `[AITool]`, `AgentDefinit
 ### WP3.5 Agent definition + engine — definition, engine, runs and traces done; structured-output grammar/retry outstanding
 `AgentDefinition` entity + CRUD; prompt templating (`{{claims.email}}`, `{{request.meta.x}}`, static); `AgentEngine.BuildChatClient(agent, caller)` = alias/fallback → `RagChatClient` (attached KBs + retrieval settings, citations) → `FunctionInvokingChatClient` (max iterations, per-tool timeout via linked CTS, confirmation policy hook) → structured output (`ChatResponseFormat.ForJsonSchema`; GGUF converts to GBNF, others validate + retry N). Sliding-window memory from `Sessions` / `Messages`. Every run writes a `Runs` row with a `RunTrace` (retrievals, tool calls with args/results, tokens, latency per step).
 
-### WP3.6 Agent playground
+### WP3.6 Agent playground — done (runs are saved and re-readable rather than named and pinned)
 Interactive page: chat with a trace drawer per turn; saved test conversations; capability-aware UI (no tools toggle for models without ToolCalling).
 
 ### WP3.7 `IAgentClient` + HTTP API + API keys

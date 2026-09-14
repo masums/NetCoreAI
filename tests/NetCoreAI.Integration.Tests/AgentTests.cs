@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NetCoreAI.Agents;
+using NetCoreAI.Knowledge;
 using NetCoreAI.Backends.OpenAICompatible;
 using NetCoreAI.Providers;
 using NetCoreAI.Tools;
@@ -351,6 +352,45 @@ public sealed class AgentTests : IAsyncLifetime
 
         Assert.Contains("event: delta", stream, StringComparison.Ordinal);
         Assert.Contains("event: done", stream, StringComparison.Ordinal);
+    }
+
+    // ---------- the page ----------
+
+    [Fact]
+    public async Task The_agents_page_lists_agents_and_is_in_the_navigation()
+    {
+        var client = _app.GetTestClient();
+        await SaveAsync(Agent());
+
+        var html = await client.GetStringAsync("/netcoreai/agents", Ct);
+        Assert.Contains("Helper", html, StringComparison.Ordinal);
+        Assert.Contains("data-action=\"agent-try\"", html, StringComparison.Ordinal);
+
+        Assert.Contains("/netcoreai/agents", await client.GetStringAsync("/netcoreai", Ct), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_page_tells_the_editor_which_models_can_call_tools()
+    {
+        var html = await _app.GetTestClient().GetStringAsync("/netcoreai/agents", Ct);
+
+        // The editor hides the tool picker for a model that cannot call them, rather than offering a
+        // choice that would be silently ignored at run time.
+        Assert.Contains("\"tools\":true", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_name_that_could_break_out_of_the_options_block_is_escaped()
+    {
+        await _app.Services.GetRequiredService<IKnowledgeService>().CreateAsync(
+            new KnowledgeBase { Id = "kb1", Name = "</script><script>alert(1)</script>", EmbeddingModel = "embed" },
+            Ct);
+
+        var html = await _app.GetTestClient().GetStringAsync("/netcoreai/agents", Ct);
+
+        // The options are written into a script block, so an unescaped name would close it and run.
+        Assert.DoesNotContain("</script><script>alert(1)", html, StringComparison.Ordinal);
+        Assert.Contains("u003C", html, StringComparison.Ordinal);
     }
 
     [Fact]

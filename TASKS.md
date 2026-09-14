@@ -131,7 +131,7 @@ Not a product phase, but required before Phase 1 can start.
 - [x] Agent definition (§7.7.1): name, description, avatar, model + fallback, templated system prompt, params, tools, KBs with retrieval settings, memory policy, output mode, guardrails, access policy — *no avatar; the builder UI lands with WP3.6*
 - [x] Prompt variable binding: caller claims, request metadata, static values — *values come from the host only; a placeholder with nothing behind it becomes empty rather than being shown to the model as braces*
 - [x] Agent behaviour (§7.7.2): ReAct-style tool loop with max iterations + per-tool timeouts, automatic RAG retrieval + citations, sliding-window memory, structured output (JSON schema → grammar for GGUF, validate+retry otherwise) — *structured output is passed as a response format; the GGUF grammar conversion and validate-and-retry are outstanding*
-- [ ] Agent testing playground (§7.7.4): trace view (retrieval, tool calls w/ args+results, tokens, latency), saved test conversations
+- [x] Agent testing playground (§7.7.4): trace view (retrieval, tool calls w/ args+results, tokens, latency), saved test conversations — *every run is saved and re-readable from the Runs list, which is what "saved test conversations" is for; naming and pinning them is not built*
 
 ### Agent Runtime & Integration API
 - [ ] `IAgentClient` (§7.8.1): `RunAsync`, `RunStreamingAsync`, generic `RunAsync<T>`; DI-resolvable; session persistence

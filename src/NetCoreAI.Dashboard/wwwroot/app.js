@@ -90,6 +90,12 @@
       case 'kb-close': { const d = $('#kb-detail'); if (d) d.hidden = true; return; }
       case 'kb-delete-source': return confirm('Remove this source and the documents it brought in?') && guarded(async () => { await call('DELETE', `kb/${encodeURIComponent(btn.dataset.kb)}/sources/${encodeURIComponent(id)}`); reload(); }, btn);
       case 'kb-delete-document': return guarded(async () => { await call('DELETE', `kb/${encodeURIComponent(btn.dataset.kb)}/documents/${encodeURIComponent(id)}`); openKnowledgeBase(btn.dataset.kb); }, btn);
+      case 'agent-edit': return guarded(() => openAgent(id), btn);
+      case 'agent-try': return openAgentPlayground(id, name);
+      case 'agent-runs': return guarded(() => openAgentRuns(id, name), btn);
+      case 'agent-close': { const a = $('#agent-detail'); if (a) a.hidden = true; return; }
+      case 'agent-delete': return confirm(`Delete the agent "${name}"? Its run history goes too.`) && guarded(async () => { await call('DELETE', `agents/${encodeURIComponent(id)}`); reload(); }, btn);
+      case 'run-open': return guarded(() => openRun(id), btn);
       case 'tool-edit': return guarded(() => openTool(id), btn);
       case 'tool-test': return guarded(() => openToolTest(id, name), btn);
       case 'tool-close': { const t = $('#tool-detail'); if (t) t.hidden = true; return; }
@@ -431,6 +437,239 @@
       setTimeout(() => location.reload(), 900);
     });
   });
+
+  // Minimal markdown: fenced code, inline code, bold, links; everything else escaped. Module scope rather
+  // than inside the chat page, because the agent playground renders answers the same way — and did not,
+  // which is how a run there ended with "render is not defined" instead of an answer.
+  function render(md) {
+    let html = esc(md);
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, l, c) => `<pre><code class="lang-${l}">${c}</code></pre>`);
+    html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    return html;
+  }
+
+  // ---------- agents ----------
+  const agentDetail = $('#agent-detail');
+  const agentOptions = (() => {
+    try { return JSON.parse($('#agent-options')?.textContent || '{}'); } catch { return {}; }
+  })();
+
+  $('#agent-form')?.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const d = formData(ev.target);
+    guarded(async () => {
+      await call('POST', 'agents', { id: d.id, name: d.name, model: d.model });
+      toast(`Created ${d.name}.`);
+      setTimeout(() => location.reload(), 700);
+    });
+  });
+
+  async function openAgent(id) {
+    const agent = await call('GET', `agents/${encodeURIComponent(id)}`);
+    const models = agentOptions.models || [];
+    const tools = agentOptions.tools || [];
+    const bases = agentOptions.knowledge || [];
+    const chosenTools = new Set(agent.toolIds || []);
+    const chosenBases = new Set((agent.knowledge || []).map((k) => k.knowledgeBaseId));
+    const model = models.find((m) => m.id === agent.model);
+
+    $('#agent-detail-title').textContent = agent.name;
+    $('#agent-detail-body').innerHTML = `
+      <form id="agent-editor" class="grid-form">
+        <label>Name<input name="name" value="${esc(agent.name)}" required /></label>
+        <label>Enabled<select name="enabled">
+          <option value="true"${agent.enabled ? ' selected' : ''}>yes</option>
+          <option value="false"${agent.enabled ? '' : ' selected'}>no</option></select></label>
+        <label class="wide">Description — for the people choosing between agents, not for the model
+          <input name="description" value="${esc(agent.description || '')}" /></label>
+        <label>Model<select name="model">
+          ${models.map((m) => `<option value="${esc(m.id)}"${m.id === agent.model ? ' selected' : ''}>${esc(m.name)}</option>`).join('')}
+        </select></label>
+        <label>Temperature<input name="temperature" type="number" step="0.05" min="0" max="2" value="${agent.parameters?.temperature ?? ''}" placeholder="model default" /></label>
+        <label class="wide">System prompt — placeholders like claims.name, request.tenant and agent.name are filled in from the host
+          <textarea name="systemPrompt" rows="4">${esc(agent.systemPrompt || '')}</textarea></label>
+
+        <h3 class="wide">Knowledge</h3>
+        ${bases.length
+          ? `<div class="wide">${bases.map((b) => `<label class="checkbox"><input type="checkbox" class="agent-kb" value="${esc(b.id)}"${chosenBases.has(b.id) ? ' checked' : ''} /> ${esc(b.name)}</label>`).join('')}</div>`
+          : '<p class="empty wide">No knowledge bases yet.</p>'}
+
+        <h3 class="wide">Tools</h3>
+        ${model && model.tools === false
+          ? `<p class="empty wide">${esc(model.name)} does not support tool calling, so tools would be ignored. Pick a model that does, or leave this agent without tools.</p>`
+          : tools.length
+            ? `<div class="wide">${tools.map((t) => `<label class="checkbox"><input type="checkbox" class="agent-tool" value="${esc(t.id)}"${chosenTools.has(t.id) ? ' checked' : ''} /> ${esc(t.name)}${t.safety === 'SideEffecting' ? ' <span class="tag warn">changes data</span>' : ''}</label>`).join('')}</div>`
+            : '<p class="empty wide">No tools yet.</p>'}
+
+        <h3 class="wide">Limits</h3>
+        <label>Tool rounds per answer<input name="maxToolIterations" type="number" min="1" max="50" value="${agent.limits?.maxToolIterations ?? 8}" /></label>
+        <label>Tool timeout (seconds)<input name="toolTimeoutSeconds" type="number" min="1" max="600" value="${agent.limits?.toolTimeoutSeconds ?? 30}" /></label>
+        <label>Run timeout (seconds)<input name="runTimeoutSeconds" type="number" min="1" max="3600" value="${agent.limits?.runTimeoutSeconds ?? 300}" /></label>
+        <label>Turns remembered<input name="windowTurns" type="number" min="1" max="100" value="${agent.memory?.windowTurns ?? 10}" /></label>
+        <label class="wide">Access tags — who may run this agent (comma separated; blank means anyone)
+          <input name="aclTags" value="${esc((agent.aclTags || []).join(', '))}" placeholder="role:support" /></label>
+        <button class="btn" type="submit">Save agent</button>
+      </form>`;
+
+    agentDetail.hidden = false;
+    agentDetail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    $('#agent-editor').addEventListener('submit', (ev) => { ev.preventDefault(); saveAgent(agent); });
+  }
+
+  function saveAgent(original) {
+    const d = formData($('#agent-editor'));
+    guarded(async () => {
+      // The whole record goes back with the edited fields replaced, so nothing the editor does not show —
+      // the output schema, fallback models — is dropped by saving from this form.
+      await call('PUT', `agents/${encodeURIComponent(original.id)}`, {
+        ...original,
+        name: d.name,
+        description: d.description || null,
+        enabled: d.enabled === 'true',
+        model: d.model,
+        systemPrompt: d.systemPrompt || null,
+        parameters: { ...original.parameters, temperature: d.temperature === '' ? null : Number(d.temperature) },
+        toolIds: $$('.agent-tool:checked').map((c) => c.value),
+        knowledge: $$('.agent-kb:checked').map((c) => ({ knowledgeBaseId: c.value })),
+        limits: {
+          ...original.limits,
+          maxToolIterations: Number(d.maxToolIterations),
+          toolTimeoutSeconds: Number(d.toolTimeoutSeconds),
+          runTimeoutSeconds: Number(d.runTimeoutSeconds),
+        },
+        memory: { ...original.memory, windowTurns: Number(d.windowTurns) },
+        aclTags: d.aclTags ? d.aclTags.split(',').map((t) => t.trim()).filter(Boolean) : [],
+      });
+      toast('Agent saved.');
+      setTimeout(() => location.reload(), 700);
+    });
+  }
+
+  // The playground: one turn at a time, with what the agent did underneath it.
+  function openAgentPlayground(id, name) {
+    $('#agent-detail-title').textContent = `Try ${name}`;
+    $('#agent-detail-body').innerHTML = `
+      <div id="agent-messages" class="messages"><p class="empty">Ask it something.</p></div>
+      <form id="agent-chat" class="chat-input">
+        <textarea id="agent-text" rows="2" placeholder="Message… (Enter to send)" required></textarea>
+        <button class="btn primary" type="submit">Send</button>
+      </form>`;
+
+    agentDetail.hidden = false;
+    agentDetail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    $('#agent-chat').addEventListener('submit', (ev) => { ev.preventDefault(); runAgent(id); });
+    $('#agent-text').addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); $('#agent-chat').requestSubmit(); }
+    });
+  }
+
+  async function runAgent(id) {
+    const textEl = $('#agent-text');
+    const question = textEl.value.trim();
+    if (!question) return;
+
+    const messages = $('#agent-messages');
+    if (messages.querySelector('.empty')) messages.innerHTML = '';
+    messages.insertAdjacentHTML('beforeend', `<div class="msg user"><div class="bubble">${esc(question)}</div></div>`);
+    const bot = document.createElement('div');
+    bot.className = 'msg assistant';
+    bot.innerHTML = '<div class="bubble cursor"></div>';
+    messages.appendChild(bot);
+    textEl.value = '';
+
+    const bubble = bot.querySelector('.bubble');
+    const steps = [];
+    let acc = '';
+
+    try {
+      const res = await fetch(api(`agents/${encodeURIComponent(id)}/run/stream`), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ message: question }),
+      });
+      if (!res.ok) throw new Error(problem(await res.text(), res));
+
+      const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
+      while (true) {
+        const { value, done } = await reader.read(); if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const chunk = buf.slice(0, idx); buf = buf.slice(idx + 2);
+          const ev = /^event: (\w+)/m.exec(chunk)?.[1];
+          const dataLine = chunk.split('\n').find((l) => l.startsWith('data: '));
+          if (!ev || !dataLine) continue;
+          const data = JSON.parse(dataLine.slice(6));
+
+          if (ev === 'delta') { acc += data.text; bubble.innerHTML = render(acc); messages.scrollTop = messages.scrollHeight; }
+          else if (ev === 'citations') { renderCitations(bot, data.citations); }
+          else if (ev === 'step') { steps.push(data.step); renderSteps(bot, steps); }
+          else if (ev === 'done') {
+            // The trace is the point of the playground: the answer alone does not say which tool was
+            // called with what, and that is usually where a wrong answer comes from.
+            renderSteps(bot, data.response?.steps || steps);
+            if (data.response?.citations?.length) renderCitations(bot, data.response.citations);
+            if (data.response?.error) toast(`Stopped early: ${data.response.error}`, true);
+          }
+          else if (ev === 'error') { bubble.innerHTML = `<span class="muted">${esc(data.error || 'unknown error')}</span>`; toast(data.error, true); }
+        }
+      }
+    } catch (e) {
+      bubble.innerHTML = `<span class="muted">${esc(e.message)}</span>`;
+      toast(e.message, true);
+    } finally {
+      bubble.classList.remove('cursor');
+    }
+  }
+
+  function renderSteps(div, steps) {
+    if (!steps || !steps.length) return;
+    let box = div.querySelector('.steps');
+    if (!box) { box = document.createElement('details'); box.className = 'steps'; div.appendChild(box); }
+    box.innerHTML = `<summary>What it did (${steps.length})</summary>` + steps.map((s) => `
+      <div class="citation">
+        <strong>${esc(s.kind)}</strong> <span class="mono small">${esc(s.name || '')}</span>
+        ${s.elapsedMs ? `<span class="muted small"> · ${s.elapsedMs} ms</span>` : ''}
+        ${s.input ? `<pre class="small">${esc(s.input)}</pre>` : ''}
+        ${s.output ? `<pre class="small">${esc(s.output)}</pre>` : ''}
+      </div>`).join('');
+  }
+
+  async function openAgentRuns(id, name) {
+    const runs = await call('GET', `agents/${encodeURIComponent(id)}/runs?limit=25`);
+    $('#agent-detail-title').textContent = `Runs of ${name}`;
+    $('#agent-detail-body').innerHTML = runs.length
+      ? `<table><thead><tr><th>When</th><th>Asked</th><th>Answered</th><th>Did</th><th></th></tr></thead><tbody>${runs.map((r) => `
+          <tr>
+            <td class="small">${new Date(r.startedAt).toLocaleString()}<br /><span class="muted">${r.elapsedMs} ms</span></td>
+            <td class="small">${esc((r.input || '').slice(0, 80))}</td>
+            <td class="small">${r.success ? esc((r.output || '').slice(0, 80)) : `<span class="muted">${esc(r.error || 'failed')}</span>`}</td>
+            <td class="small">${(r.steps || []).length} step(s)</td>
+            <td class="actions"><button class="btn small" data-action="run-open" data-id="${esc(r.id)}">Trace…</button></td>
+          </tr>`).join('')}</tbody></table>`
+      : '<p class="empty">This agent has not run yet.</p>';
+
+    agentDetail.hidden = false;
+  }
+
+  async function openRun(runId) {
+    const run = await call('GET', `runs/${encodeURIComponent(runId)}`);
+    $('#agent-detail-title').textContent = 'Run';
+    $('#agent-detail-body').innerHTML = `
+      <p class="muted small">${new Date(run.startedAt).toLocaleString()} · ${run.elapsedMs} ms · ${esc(run.modelId || '')}</p>
+      <h3>Asked</h3><pre class="small">${esc(run.input || '')}</pre>
+      ${run.error ? `<h3>Stopped</h3><p class="muted">${esc(run.error)}</p>` : ''}
+      <h3>Answered</h3><pre class="small">${esc(run.output || '(nothing)')}</pre>
+      <h3>What it did</h3>
+      ${(run.steps || []).length
+        ? run.steps.map((s) => `<div class="citation"><strong>${esc(s.kind)}</strong> <span class="mono small">${esc(s.name || '')}</span>
+            ${s.input ? `<pre class="small">${esc(s.input)}</pre>` : ''}
+            ${s.output ? `<pre class="small">${esc(s.output)}</pre>` : ''}</div>`).join('')
+        : '<p class="muted">Nothing but the model itself.</p>'}`;
+
+    agentDetail.hidden = false;
+  }
 
   // ---------- knowledge ----------
   const kbForm = $('#kb-form');
@@ -783,15 +1022,6 @@
       sessionId = id;
       sessionButtons.forEach((b) => (b.disabled = !id));
       $$('#session-list li').forEach((li) => li.classList.toggle('active', li.dataset.id === id));
-    }
-    function render(md) {
-      // minimal markdown: fenced code, inline code, bold, links; everything else escaped
-      let html = esc(md);
-      html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, l, c) => `<pre><code class="lang-${l}">${c}</code></pre>`);
-      html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-      html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      html = html.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-      return html;
     }
     function addMessage(role, content, meta) {
       if (messagesEl.querySelector('.empty')) messagesEl.innerHTML = '';

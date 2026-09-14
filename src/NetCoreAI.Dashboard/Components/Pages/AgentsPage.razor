@@ -1,0 +1,125 @@
+@using NetCoreAI.Agents
+@using NetCoreAI.Tools
+@using NetCoreAI.Knowledge
+@inject IAgentService Agents
+@inject IToolService Tools
+@inject IKnowledgeService Knowledge
+@inject IModelRegistry Registry
+
+<header class="page-header">
+    <h1>Agents</h1>
+    <p class="muted">A model, a prompt, the tools it may call and the documents it may read. Every run is recorded, so an answer you disagree with can be explained rather than guessed at.</p>
+</header>
+
+@if (_chatModels.Count == 0)
+{
+    <section class="card">
+        <h2>A model is needed first</h2>
+        <p class="muted">An agent runs on a chat model, and none is registered yet. Download one from the <a href="@Ctx.Url("hub")">Model Hub</a>, or add a provider connection on the <a href="@Ctx.Url("providers")">Providers</a> page.</p>
+    </section>
+}
+
+<section class="card">
+    <div class="toolbar">
+        <h2>Agents</h2>
+        <span class="muted">@_agents.Count agent(s)</span>
+    </div>
+
+    @if (_agents.Count == 0)
+    {
+        <p class="empty">No agents yet. Create one below, give it a tool or a knowledge base, and try it in the playground.</p>
+    }
+    else
+    {
+        <table id="agents-table">
+            <thead><tr><th>Name</th><th>Model</th><th>Knows</th><th>Can do</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var agent in _agents)
+                {
+                    <tr data-id="@agent.Id">
+                        <td>
+                            <strong>@agent.Name</strong>
+                            @if (!agent.Enabled)
+                            {
+                                <span class="tag">off</span>
+                            }
+                            @foreach (var tag in agent.AclTags)
+                            {
+                                <span class="tag">@tag</span>
+                            }
+                            <br /><span class="muted mono small">@agent.Id</span>
+                            @if (agent.Description is { Length: > 0 } description)
+                            {
+                                <br /><small class="muted">@description</small>
+                            }
+                        </td>
+                        <td class="mono small">@agent.Model</td>
+                        <td class="small">@(agent.Knowledge.Count == 0 ? "–" : string.Join(", ", agent.Knowledge.Select(k => k.KnowledgeBaseId)))</td>
+                        <td class="small">@(agent.ToolIds.Count == 0 ? "–" : $"{agent.ToolIds.Count} tool(s)")</td>
+                        <td class="actions">
+                            <button class="btn small primary" data-action="agent-try" data-id="@agent.Id" data-name="@agent.Name">Try it…</button>
+                            <button class="btn small" data-action="agent-edit" data-id="@agent.Id">Edit…</button>
+                            <button class="btn small" data-action="agent-runs" data-id="@agent.Id" data-name="@agent.Name">Runs…</button>
+                            <button class="btn small danger" data-action="agent-delete" data-id="@agent.Id" data-name="@agent.Name">Delete</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    <form id="agent-form" class="inline-form">
+        <input name="id" placeholder="id (e.g. support)" required pattern="[a-zA-Z][a-zA-Z0-9._-]*" />
+        <input name="name" placeholder="display name" required />
+        <select name="model" required>
+            <option value="">model…</option>
+            @foreach (var model in _chatModels)
+            {
+                <option value="@model.Descriptor.Id">@model.Descriptor.Name</option>
+            }
+        </select>
+        <button class="btn" type="submit">Create</button>
+    </form>
+</section>
+
+<section class="card" id="agent-detail" hidden>
+    <div class="toolbar">
+        <h2 id="agent-detail-title">Agent</h2>
+        <button class="btn small" data-action="agent-close">Close</button>
+    </div>
+    <div id="agent-detail-body"></div>
+</section>
+
+@code {
+    [Parameter] public DashboardContext Ctx { get; set; } = default!;
+
+    private IReadOnlyList<AgentDefinition> _agents = [];
+    private IReadOnlyList<ModelEntry> _chatModels = [];
+
+    /// <summary>
+    /// What the editor can offer, as JSON the page's script reads rather than fetching again.
+    /// </summary>
+    /// <remarks>
+    /// Written into a script block, so it relies on System.Text.Json's default encoder escaping &lt;, &gt;
+    /// and &amp; — a knowledge base named "&lt;/script&gt;" would otherwise close the block and run whatever
+    /// followed. Do not swap this for UnsafeRelaxedJsonEscaping.
+    /// </remarks>
+    private string _optionsJson = "{}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _agents = await Agents.ListAsync();
+
+        // Only models that can hold a conversation: an embedding model here produces an agent that cannot run.
+        _chatModels = [.. (await Registry.ListAsync()).Where(m => m.Descriptor.Capabilities.Supports(ModelCapability.Chat))];
+
+        _optionsJson = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            models = _chatModels.Select(m => new { id = m.Descriptor.Id, name = m.Descriptor.Name, tools = m.Descriptor.Capabilities.Supports(ModelCapability.ToolCalling) }),
+            tools = (await Tools.ListAsync()).Select(t => new { id = t.Id, name = t.Name, safety = t.Safety.ToString() }),
+            knowledge = (await Knowledge.ListAsync()).Select(k => new { id = k.Id, name = k.Name }),
+        });
+    }
+}
+
+<script type="application/json" id="agent-options">@((MarkupString)_optionsJson)</script>
