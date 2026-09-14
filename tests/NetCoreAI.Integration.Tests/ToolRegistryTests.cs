@@ -296,6 +296,20 @@ public sealed class ToolRegistryTests : IAsyncLifetime
     // ---------- which tools a caller is offered ----------
 
     [Fact]
+    public async Task A_loopback_call_with_no_address_anywhere_says_what_to_set()
+    {
+        var tool = await GetOrderToolAsync();
+
+        // A host behind a proxy, or a run with no request behind it, has no address to read. The message
+        // has to name the setting rather than leaving a bare connection failure.
+        var result = await _app.Services.GetRequiredService<IToolInvoker>()
+            .InvokeAsync(tool, new Dictionary<string, object?> { ["id"] = "1" }, new ToolCallContext(), Ct);
+
+        Assert.False(result.Success);
+        Assert.Contains("NetCoreAI:Tools:BaseAddress", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_disabled_tool_is_not_offered()
     {
         var tool = await Tools.SaveAsync((await GetOrderToolAsync()) with { Enabled = false }, cancellationToken: Ct);

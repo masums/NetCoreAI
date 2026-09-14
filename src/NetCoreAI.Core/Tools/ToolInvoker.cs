@@ -30,7 +30,11 @@ public interface IToolInvoker
 /// 404" can try something else or say it could not find the record; an exception ends the turn and the
 /// person asking sees nothing useful.
 /// </remarks>
-internal sealed class ToolInvoker(IHttpClientFactory factory, IInProcessToolTransport inProcess, ILogger<ToolInvoker> logger) : IToolInvoker
+internal sealed class ToolInvoker(
+    IHttpClientFactory factory,
+    IInProcessToolTransport inProcess,
+    Microsoft.Extensions.Options.IOptionsMonitor<NetCoreAIOptions> options,
+    ILogger<ToolInvoker> logger) : IToolInvoker
 {
     /// <summary>Named so a host can add handlers — a proxy, a certificate, a retry policy — to tool traffic alone.</summary>
     public const string HttpClientName = "NetCoreAI.Tools";
@@ -99,7 +103,7 @@ internal sealed class ToolInvoker(IHttpClientFactory factory, IInProcessToolTran
 
     private async Task<(int Status, string Body)> OverHttpAsync(ToolDefinition tool, BoundArguments bound, ToolCallContext context, CancellationToken cancellationToken)
     {
-        using var request = BuildRequest(tool, bound, context);
+        using var request = BuildRequest(tool, bound, context, options.CurrentValue.Tools.BaseAddress);
         using var response = await factory.CreateClient(HttpClientName).SendAsync(request, cancellationToken).ConfigureAwait(false);
         return ((int)response.StatusCode, await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
     }
@@ -110,7 +114,7 @@ internal sealed class ToolInvoker(IHttpClientFactory factory, IInProcessToolTran
         return (response.StatusCode, response.Body);
     }
 
-    private static HttpRequestMessage BuildRequest(ToolDefinition tool, BoundArguments bound, ToolCallContext context)
+    private static HttpRequestMessage BuildRequest(ToolDefinition tool, BoundArguments bound, ToolCallContext context, Uri? configured)
     {
         var route = tool.Route ?? "/";
         foreach (var (name, value) in bound.Route)
@@ -124,7 +128,7 @@ internal sealed class ToolInvoker(IHttpClientFactory factory, IInProcessToolTran
                 TimeSpan.FromSeconds(1));
         }
 
-        var url = Base(tool, context) + "/" + route.TrimStart('/');
+        var url = Base(tool, context, configured) + "/" + route.TrimStart('/');
         if (bound.Query.Count > 0)
         {
             url += "?" + string.Join('&', bound.Query.Select(q => $"{Uri.EscapeDataString(q.Key)}={Uri.EscapeDataString(q.Value)}"));
@@ -154,7 +158,7 @@ internal sealed class ToolInvoker(IHttpClientFactory factory, IInProcessToolTran
         return request;
     }
 
-    private static string Base(ToolDefinition tool, ToolCallContext context)
+    private static string Base(ToolDefinition tool, ToolCallContext context, Uri? configured)
     {
         if (tool.InvocationMode == ToolInvocationMode.HttpExternal)
         {
@@ -162,7 +166,9 @@ internal sealed class ToolInvoker(IHttpClientFactory factory, IInProcessToolTran
                 ?? throw new NetCoreAIException($"'{tool.Name}' is an external tool with no base URL, so there is nowhere to send the call.");
         }
 
-        return context.BaseAddress?.ToString().TrimEnd('/')
+        // The request that started the run knows the address the host is actually reached on, which is the
+        // better answer behind a proxy; configuration is the fallback for runs with no request behind them.
+        return (context.BaseAddress ?? configured)?.ToString().TrimEnd('/')
             ?? throw new NetCoreAIException(
                 $"'{tool.Name}' calls this host back, but the host's own address is not known here. Set NetCoreAI:Tools:BaseAddress, or run the tool in-process.");
     }

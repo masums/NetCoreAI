@@ -121,6 +121,7 @@ public static class NetCoreAIServiceCollectionExtensions
         services.TryAddSingleton<NetCoreAI.Tools.IInProcessToolTransport, NetCoreAI.Tools.InProcessToolTransport>();
         services.TryAddSingleton<NetCoreAI.Tools.IToolInvoker, NetCoreAI.Tools.ToolInvoker>();
         services.TryAddSingleton<NetCoreAI.Tools.IToolRegistry, NetCoreAI.Tools.ToolRegistry>();
+        services.TryAddSingleton<NetCoreAI.Tools.ICodeToolSource, NetCoreAI.Tools.CodeToolSource>();
 
         // Named, so a host can give tool traffic its own handlers — a proxy, a client certificate, a
         // retry policy — without touching the clients the model providers use.

@@ -34,20 +34,44 @@ public interface IToolService
 internal sealed partial class ToolService(
     IMetadataStore store,
     IEndpointDiscovery discovery,
+    ICodeToolSource codeTools,
     ILogger<ToolService> logger) : IToolService
 {
     [GeneratedRegex("^[a-zA-Z][a-zA-Z0-9_]{0,63}$")]
     private static partial Regex NamePattern { get; }
 
-    public Task<IReadOnlyList<ToolDefinition>> ListAsync(CancellationToken cancellationToken = default) =>
-        store.Tools.ListAsync(cancellationToken);
+    /// <summary>
+    /// Every tool this host has, saved or declared in code.
+    /// </summary>
+    /// <remarks>
+    /// Code tools are listed alongside saved ones because the question a reader is asking — "what can a
+    /// model call here?" — does not care which. They are read-only; <see cref="SaveAsync"/> refuses them.
+    /// </remarks>
+    public async Task<IReadOnlyList<ToolDefinition>> ListAsync(CancellationToken cancellationToken = default) =>
+        [.. (await store.Tools.ListAsync(cancellationToken).ConfigureAwait(false))
+            .Concat(codeTools.Definitions)
+            .OrderBy(t => t.Name, StringComparer.Ordinal)];
 
-    public Task<ToolDefinition?> GetAsync(string id, CancellationToken cancellationToken = default) =>
-        store.Tools.GetAsync(id, cancellationToken);
+    public async Task<ToolDefinition?> GetAsync(string id, CancellationToken cancellationToken = default) =>
+        await store.Tools.GetAsync(id, cancellationToken).ConfigureAwait(false)
+        ?? codeTools.Definitions.FirstOrDefault(t => string.Equals(t.Id, id, StringComparison.OrdinalIgnoreCase));
 
     public async Task<ToolDefinition> SaveAsync(ToolDefinition tool, string? allowInProcessBy = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(tool);
+
+        if (tool.Kind == ToolKind.Code)
+        {
+            // A code tool is a view of a method the compiler owns. Saving a row for it would create a copy
+            // that the next deployment silently disagrees with.
+            throw new NetCoreAIException(
+                $"'{tool.Name}' is defined in code with [AITool]. Change the method, not this: code tools are read-only here.");
+        }
+
+        if (codeTools.Definitions.Any(c => string.Equals(c.Name, tool.Name, StringComparison.Ordinal)))
+        {
+            throw new NetCoreAIException($"A code tool is already called '{tool.Name}'. The model calls tools by name, so two cannot share one.");
+        }
 
         if (!NamePattern.IsMatch(tool.Name))
         {

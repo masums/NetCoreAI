@@ -18,7 +18,7 @@ public interface IToolRegistry
         CancellationToken cancellationToken = default);
 }
 
-internal sealed class ToolRegistry(IMetadataStore store, IToolInvoker invoker) : IToolRegistry
+internal sealed class ToolRegistry(IMetadataStore store, IToolInvoker invoker, ICodeToolSource codeTools) : IToolRegistry
 {
     public async Task<IReadOnlyList<AIFunction>> GetFunctionsAsync(
         IEnumerable<string> toolIds,
@@ -34,14 +34,30 @@ internal sealed class ToolRegistry(IMetadataStore store, IToolInvoker invoker) :
             return [];
         }
 
-        var all = await store.Tools.ListAsync(cancellationToken).ConfigureAwait(false);
-        return
-        [
-            .. all
-                .Where(t => t.Enabled && (wanted.Contains(t.Id) || wanted.Contains(t.Name)))
-                .Where(t => Permitted(t, context))
-                .Select(t => (AIFunction)new ToolFunction(t, invoker, context)),
-        ];
+        var functions = new List<AIFunction>();
+        foreach (var tool in await store.Tools.ListAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (tool.Enabled && (wanted.Contains(tool.Id) || wanted.Contains(tool.Name)) && Permitted(tool, context))
+            {
+                functions.Add(new ToolFunction(tool, invoker, context));
+            }
+        }
+
+        // Code tools come from the assembly rather than the store, but a caller naming one should not have
+        // to know that: an agent lists the tools it wants and gets them, whatever they were declared by.
+        if (codeTools is CodeToolSource source)
+        {
+            foreach (var name in wanted)
+            {
+                if (source.TryGet(name, out var code) && Permitted(code.Definition, context)
+                    && !functions.Exists(f => f.Name == code.Definition.Name))
+                {
+                    functions.Add(source.Create(code));
+                }
+            }
+        }
+
+        return functions;
     }
 
     /// <summary>

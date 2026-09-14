@@ -19,6 +19,8 @@ public sealed class NetCoreAIOptions
 
     public NetworkOptions Network { get; set; } = new();
 
+    public ToolOptions Tools { get; set; } = new();
+
     public ProvidersOptions Providers { get; set; } = new();
 
     public TelemetryOptions Telemetry { get; set; } = new();
@@ -70,6 +72,20 @@ public sealed class ModelsOptions
 
     /// <summary>Warn in the dashboard when the data directory exceeds this size; null = no warning.</summary>
     public long? StorageQuotaWarningBytes { get; set; }
+}
+
+/// <summary>Settings for the tools a model may call.</summary>
+public sealed class ToolOptions
+{
+    /// <summary>
+    /// Where this host answers its own requests, for tools invoked by HTTP loopback.
+    /// </summary>
+    /// <remarks>
+    /// Usually worked out from the request that started the run. Set it when the host cannot know its own
+    /// reachable address — behind a reverse proxy, or in a container answering on a different port than it
+    /// is reached on — or when tools run outside a request, where there is no request to read it from.
+    /// </remarks>
+    public Uri? BaseAddress { get; set; }
 }
 
 public sealed class NetworkOptions

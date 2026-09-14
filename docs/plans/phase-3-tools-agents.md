@@ -23,8 +23,8 @@ Abstractions added: `ToolDefinition`, `IToolProvider`, `[AITool]`, `AgentDefinit
 ### WP3.2 Tool definitions + registry — done (the designer UI lands with WP3.4)
 `ToolDefinition` entity; editor generates `AIFunction` metadata (name, description, parameter docs/required/enums/defaults from schema); locked/hidden params bound to claim type, request metadata or static; response mapping (JSON-path select, max bytes, truncation strategy); invocation mode (InProcess per ADR-0004 / HTTP loopback / HTTP external); auth propagation (forward caller bearer/cookie, or encrypted service credential); safety flags (ReadOnly vs SideEffecting + confirmation policy Auto / AskUser / AdminOnly). `ToolRegistry` builds `AIFunction`s per request with the caller's `ClaimsPrincipal` captured in the closure. The model never sees locked params (invariant test).
 
-### WP3.3 Code-defined tools
-`[AITool]` attribute scanner over host assemblies + `services.AddAITool<T>()`; wrapped with `AIFunctionFactory.Create`; shown read-only in the designer.
+### WP3.3 Code-defined tools — done
+`[AITool]` on methods + `AddAITool<T>()`. No assembly-wide scan: registration is per type, so a tool exists because somebody registered it rather than because an attribute happened to be on something loaded. Registering a type with no marked method throws rather than registering nothing silently. wrapped with `AIFunctionFactory.Create`; shown read-only in the designer.
 
 ### WP3.4 Tool testing panel
 `POST /api/tools/{id}/test` with manual args or model-generated args from a sample prompt (uses the default chat model); UI shows request, response, latency, errors.
