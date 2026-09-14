@@ -116,7 +116,7 @@ Not a product phase, but required before Phase 1 can start.
 
 ## Phase 3 — Tools & Agents
 
-**Exit criterion:** G3 (expose an endpoint as a tool ≤ 5 min) and G4 (agent behaves identically via C# and HTTP) demonstrated.
+**Exit criterion:** G3 (expose an endpoint as a tool ≤ 5 min) and G4 (agent behaves identically via C# and HTTP) demonstrated. — *both mechanically demonstrated against a real model in `Phase3AcceptanceTests`; the ≤ 5 min part is a stopwatch run on a clean machine and has not been done*
 
 ### Tool Designer
 - [x] Endpoint discovery (§7.6.1) from `EndpointDataSource` + OpenAPI doc: route, method, params, schemas, auth requirements, XML doc summaries — *summaries come from `.WithSummary()`/`.WithDescription()` and the opt-in attribute; reading them from the OpenAPI document waits for the import work in the same WP*

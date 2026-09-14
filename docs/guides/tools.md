@@ -145,3 +145,20 @@ A key carries:
 - **A rate limit** per minute, **an allow-list** of addresses or CIDR ranges, and **an expiry**.
 
 The rate limit is counted per key **in each process**. Behind a load balancer, each instance allows the configured rate, so the effective limit is the limit times the number of instances — a deliberate simplification, since a shared counter would mean a shared store that NetCoreAI does not otherwise require.
+
+## Goal G3: an endpoint becomes a tool
+
+The whole of what a developer writes:
+
+```csharp
+app.MapGet("/api/orders/{id}", (string id, IOrderStore store) => store.FindAsync(id))
+   .WithAITool("get_order", "Look up one customer order by its id, returning its status, total and carrier.");
+```
+
+Then, on the Tools page, **Make a tool** on that endpoint; on the Agents page, create an agent and tick it. Or two API calls: `POST /api/tools/from-endpoint/{id}` and `POST /api/agents`.
+
+That path is exercised end to end by `Phase3AcceptanceTests`, against a real model rather than a stub. It asserts what a fake cannot: that a model told nothing about the endpoint beyond that one description **decides to call it**, sends the right id, and answers from what came back rather than from what it imagined. It also asserts that a locked parameter is not filled in by a real model that is actively trying to supply one.
+
+Run it with `OPENROUTER_FREE_KEY` set (and optionally `OPENROUTER_FREE_MODEL`); without a key the tests skip, so the suite still runs offline and in CI without secrets. A provider rate-limit is skipped rather than failed — a free tier refusing a burst is a fact about the tier, not a defect here, and a suite that goes red for it teaches everyone to ignore red.
+
+**What has not been measured:** a stopwatch run on a clean machine, from `dotnet add package` to a working tool, by someone who has not seen this before. The mechanics above are proven; the five-minute claim is not, and saying otherwise would be guessing at the part that actually matters — how long it takes someone to find out that `.WithAITool()` is the thing to type.
