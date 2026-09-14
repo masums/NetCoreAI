@@ -30,7 +30,7 @@ public interface IToolInvoker
 /// 404" can try something else or say it could not find the record; an exception ends the turn and the
 /// person asking sees nothing useful.
 /// </remarks>
-internal sealed class ToolInvoker(IHttpClientFactory factory, ILogger<ToolInvoker> logger) : IToolInvoker
+internal sealed class ToolInvoker(IHttpClientFactory factory, IInProcessToolTransport inProcess, ILogger<ToolInvoker> logger) : IToolInvoker
 {
     /// <summary>Named so a host can add handlers — a proxy, a certificate, a retry policy — to tool traffic alone.</summary>
     public const string HttpClientName = "NetCoreAI.Tools";
@@ -53,27 +53,29 @@ internal sealed class ToolInvoker(IHttpClientFactory factory, ILogger<ToolInvoke
         try
         {
             var bound = ToolBinding.Bind(tool, arguments, context);
-            using var request = BuildRequest(tool, bound, context);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(tool.TimeoutSeconds, 1, 600)));
 
-            using var response = await factory.CreateClient(HttpClientName).SendAsync(request, timeout.Token).ConfigureAwait(false);
-            var body = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
-            var elapsed = (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            // Both paths answer with a status and a body, and everything after this point treats them the
+            // same: whichever mode a tool uses must not change what the model is told.
+            var (status, body) = tool.InvocationMode == ToolInvocationMode.InProcess
+                ? await InProcessAsync(tool, bound, context, timeout.Token).ConfigureAwait(false)
+                : await OverHttpAsync(tool, bound, context, timeout.Token).ConfigureAwait(false);
 
-            if (!response.IsSuccessStatusCode)
+            var elapsed = (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            if (status is < 200 or > 299)
             {
                 // The status is part of the answer: 403 means the caller may not do this, and the model
                 // should say so rather than retrying or inventing a result.
-                logger.LogInformation("Tool {Name} returned {Status}.", tool.Name, (int)response.StatusCode);
+                logger.LogInformation("Tool {Name} returned {Status}.", tool.Name, status);
                 return new ToolCallResult(
-                    $"The call failed with HTTP {(int)response.StatusCode} ({response.ReasonPhrase}). {Truncate(body, 1024)}".TrimEnd(),
+                    $"The call failed with HTTP {status}. {Truncate(body, 1024)}".TrimEnd(),
                     Success: false,
-                    (int)response.StatusCode,
+                    status,
                     elapsed);
             }
 
-            return new ToolCallResult(Shape(tool, body), Success: true, (int)response.StatusCode, elapsed);
+            return new ToolCallResult(Shape(tool, body), Success: true, status, elapsed);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -93,6 +95,19 @@ internal sealed class ToolInvoker(IHttpClientFactory factory, ILogger<ToolInvoke
             logger.LogWarning(ex, "Tool {Name} could not be reached.", tool.Name);
             return new ToolCallResult($"The service could not be reached: {ex.Message}", Success: false, ElapsedMs: (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         }
+    }
+
+    private async Task<(int Status, string Body)> OverHttpAsync(ToolDefinition tool, BoundArguments bound, ToolCallContext context, CancellationToken cancellationToken)
+    {
+        using var request = BuildRequest(tool, bound, context);
+        using var response = await factory.CreateClient(HttpClientName).SendAsync(request, cancellationToken).ConfigureAwait(false);
+        return ((int)response.StatusCode, await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+    }
+
+    private async Task<(int Status, string Body)> InProcessAsync(ToolDefinition tool, BoundArguments bound, ToolCallContext context, CancellationToken cancellationToken)
+    {
+        var response = await inProcess.SendAsync(tool, bound, context, cancellationToken).ConfigureAwait(false);
+        return (response.StatusCode, response.Body);
     }
 
     private static HttpRequestMessage BuildRequest(ToolDefinition tool, BoundArguments bound, ToolCallContext context)

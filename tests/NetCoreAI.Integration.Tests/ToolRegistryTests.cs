@@ -326,6 +326,16 @@ public sealed class ToolRegistryTests : IAsyncLifetime
     }
 
     [Fact]
+    public void A_host_that_never_configured_authorization_still_starts_and_can_call_tools()
+    {
+        // This host calls neither AddAuthorization() nor UseAuthorization() — the ordinary minimal API that
+        // NetCoreAI promises to work in with two lines. Requiring them for tool support once broke every
+        // such host at the first resolve of IToolInvoker.
+        Assert.Null(_app.Services.GetService<Microsoft.AspNetCore.Authorization.IAuthorizationService>());
+        Assert.NotNull(_app.Services.GetRequiredService<IToolInvoker>());
+    }
+
+    [Fact]
     public async Task An_unknown_tool_is_left_out_rather_than_failing_the_whole_turn()
     {
         await GetOrderToolAsync();

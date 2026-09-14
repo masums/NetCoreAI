@@ -118,6 +118,7 @@ public static class NetCoreAIServiceCollectionExtensions
         // Tools: discovery only reads the route table, so it costs nothing until something asks.
         services.TryAddSingleton<NetCoreAI.Tools.IEndpointDiscovery, NetCoreAI.Tools.EndpointDiscoveryService>();
         services.TryAddSingleton<NetCoreAI.Tools.IToolService, NetCoreAI.Tools.ToolService>();
+        services.TryAddSingleton<NetCoreAI.Tools.IInProcessToolTransport, NetCoreAI.Tools.InProcessToolTransport>();
         services.TryAddSingleton<NetCoreAI.Tools.IToolInvoker, NetCoreAI.Tools.ToolInvoker>();
         services.TryAddSingleton<NetCoreAI.Tools.IToolRegistry, NetCoreAI.Tools.ToolRegistry>();
 

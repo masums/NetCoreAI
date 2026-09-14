@@ -16,10 +16,22 @@ The third is what this decision takes, with a restriction, because a synthetic c
 
 ## Decision
 
-- In-process invocation runs the discovered endpoint's `RequestDelegate` with a synthetic `HttpContext` carrying the caller's `ClaimsPrincipal` and a scoped `RequestServices`, so **the endpoint's own authorization decides what happens**.
+- In-process invocation runs the discovered endpoint's `RequestDelegate` with a synthetic `HttpContext` carrying the caller's `ClaimsPrincipal` and a scoped `RequestServices`, and **evaluates the endpoint's own authorization first** (see the correction below).
 - It is available only for endpoints that are **opted in**: marked `[AIToolEndpoint]` or `.WithAITool()` by the developer, or explicitly enabled by an Admin in the Tool Designer. Enabling one in the designer is stored as a flag on the tool and written to the audit log with who did it.
 - **HTTP loopback is the fallback** and the default for everything else, including every imported OpenAPI tool and every endpoint not opted in.
 - Whichever mode runs, the invocation carries the **caller's** identity. A tool never runs with more authority than the person who caused it to run, and the model can never supply an identity-bearing argument — those parameters are locked and bound from claims (WP3.2).
+
+## Correction, found while implementing (2026-09-14)
+
+The wording above — "through the real pipeline, so authorization runs" — was optimistic, and the distinction matters enough to record rather than quietly fix.
+
+Invoking an endpoint's `RequestDelegate` runs **the endpoint and its endpoint filters. It does not run the application's middleware.** The authorization middleware that enforces `RequireAuthorization` never sees a request built this way, so relying on "the pipeline will handle it" would have meant every in-process tool call ran unauthorized — exactly the failure this ADR rejected direct method calls for, arrived at by a different route.
+
+So the transport evaluates authorization itself, before invoking the delegate: it reads the endpoint's own `IAuthorizeData` and `IAllowAnonymous` metadata, combines it through the host's real `IAuthorizationPolicyProvider`, and evaluates it with the host's real `IAuthorizationService` — the same data and the same evaluator the middleware uses. An unauthenticated caller gets 401 and an authenticated one without the policy gets 403, which is what the middleware would have produced.
+
+What is still not reproduced is middleware unrelated to the endpoint's authorization: IP allow-lists, forwarded headers, rate limiters, antiforgery. A synthetic request has no connection for those to read. This is the reason in-process invocation stays opt-in per endpoint rather than becoming a default, and the reason the guide tells you to leave such endpoints on loopback.
+
+The decision itself is unchanged. Both modes are covered by one test body asserting identical behaviour, including that an unauthenticated caller and a caller without the required role are refused in both; removing the authorization evaluation fails those tests for the in-process mode alone.
 
 ## Consequences
 
