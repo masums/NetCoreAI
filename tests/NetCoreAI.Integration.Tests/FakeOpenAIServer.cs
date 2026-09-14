@@ -111,6 +111,42 @@ public sealed class FakeOpenAIServer : IAsyncDisposable
                     usage = new { prompt_tokens = 4, completion_tokens = 2, total_tokens = 6 },
                 });
 
+                if (body["stream"]?.GetValue<bool>() == true)
+                {
+                    // Agents always stream, so a tool call has to be expressible here too — otherwise a
+                    // streaming run silently gets prose where the test expects a call.
+                    var call = new
+                    {
+                        id = "c1",
+                        @object = "chat.completion.chunk",
+                        created = 0,
+                        model,
+                        choices = new[]
+                        {
+                            new
+                            {
+                                index = 0,
+                                delta = new
+                                {
+                                    role = "assistant",
+                                    tool_calls = new[]
+                                    {
+                                        new { index = 0, id = "call_1", type = "function", function = new { name = called, arguments } },
+                                    },
+                                },
+                                finish_reason = (string?)null,
+                            },
+                        },
+                    };
+
+                    var stop = new { id = "c1", @object = "chat.completion.chunk", created = 0, model, choices = new[] { new { index = 0, delta = new { }, finish_reason = "tool_calls" } } };
+                    var chunks = $"data: {JsonSerializer.Serialize(call)}\n\ndata: {JsonSerializer.Serialize(stop)}\n\ndata: [DONE]\n\n";
+
+                    ctx.Response.ContentType = "text/event-stream";
+                    await ctx.Response.WriteAsync(chunks);
+                    return;
+                }
+
                 ctx.Response.ContentType = "application/json";
                 await ctx.Response.WriteAsync(toolPayload);
                 return;

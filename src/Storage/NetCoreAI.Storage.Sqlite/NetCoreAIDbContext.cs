@@ -24,6 +24,8 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
     public DbSet<DocumentRow> Documents => Set<DocumentRow>();
     public DbSet<JobRow> Jobs => Set<JobRow>();
     public DbSet<ToolRow> Tools => Set<ToolRow>();
+    public DbSet<AgentRow> Agents => Set<AgentRow>();
+    public DbSet<RunRow> Runs => Set<RunRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -81,6 +83,20 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
 
             // The model calls a tool by name, so two tools sharing one would make a call ambiguous.
             e.HasIndex(x => x.Name).IsUnique();
+        });
+        modelBuilder.Entity<AgentRow>(e =>
+        {
+            e.ToTable("Agents");
+            e.HasKey(x => x.Id);
+        });
+        modelBuilder.Entity<RunRow>(e =>
+        {
+            e.ToTable("Runs");
+            e.HasKey(x => x.Id);
+
+            // Runs are listed newest-first for one agent, and pruned by age.
+            e.HasIndex(x => new { x.AgentId, x.StartedAtTicks });
+            e.HasIndex(x => x.StartedAtTicks);
         });
     }
 }
@@ -186,6 +202,21 @@ public sealed class ToolRow
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string Kind { get; set; } = "";
+    public string Json { get; set; } = "";
+}
+
+public sealed class AgentRow
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Json { get; set; } = "";
+}
+
+public sealed class RunRow
+{
+    public string Id { get; set; } = "";
+    public string AgentId { get; set; } = "";
+    public long StartedAtTicks { get; set; }
     public string Json { get; set; } = "";
 }
 

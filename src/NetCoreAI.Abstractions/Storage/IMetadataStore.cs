@@ -29,6 +29,10 @@ public interface IMetadataStore
     IJobStore Jobs { get; }
 
     IToolStore Tools { get; }
+
+    IAgentStore Agents { get; }
+
+    IRunStore Runs { get; }
 }
 
 public interface IModelStore
@@ -107,6 +111,32 @@ public interface IKnowledgeStore
 }
 
 /// <summary>Persistence for background jobs, so progress and failures survive a restart.</summary>
+/// <summary>Agent definitions.</summary>
+public interface IAgentStore
+{
+    Task<IReadOnlyList<AgentDefinition>> ListAsync(CancellationToken cancellationToken = default);
+    Task<AgentDefinition?> GetAsync(string id, CancellationToken cancellationToken = default);
+    Task UpsertAsync(AgentDefinition agent, CancellationToken cancellationToken = default);
+    Task DeleteAsync(string id, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// What each run of an agent did.
+/// </summary>
+/// <remarks>
+/// Traces are the only way to explain a wrong answer after the fact — which passages it read, which tools
+/// it called, with what. They are also the fastest-growing table in the system, so they are pruned.
+/// </remarks>
+public interface IRunStore
+{
+    Task<IReadOnlyList<RunTrace>> ListAsync(string? agentId = null, int limit = 50, CancellationToken cancellationToken = default);
+    Task<RunTrace?> GetAsync(string id, CancellationToken cancellationToken = default);
+    Task UpsertAsync(RunTrace run, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes runs older than the cutoff, so the table does not grow without bound.</summary>
+    Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken cancellationToken = default);
+}
+
 /// <summary>Saved tool definitions. A tool exists because somebody saved one, never because discovery saw it.</summary>
 public interface IToolStore
 {

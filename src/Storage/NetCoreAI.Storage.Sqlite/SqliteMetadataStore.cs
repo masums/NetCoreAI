@@ -25,6 +25,8 @@ public sealed class SqliteMetadataStore : IMetadataStore
         Knowledge = new SqliteKnowledgeStore(factory);
         Jobs = new SqliteJobStore(factory);
         Tools = new SqliteToolStore(factory);
+        Agents = new SqliteAgentStore(factory);
+        Runs = new SqliteRunStore(factory);
     }
 
     public IModelStore Models { get; }
@@ -37,6 +39,10 @@ public sealed class SqliteMetadataStore : IMetadataStore
     public IJobStore Jobs { get; }
 
     public IToolStore Tools { get; }
+
+    public IAgentStore Agents { get; }
+
+    public IRunStore Runs { get; }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {

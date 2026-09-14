@@ -266,3 +266,102 @@ internal sealed class SqliteToolStore(IDbContextFactory<NetCoreAIDbContext> fact
         await db.Tools.Where(t => t.Id == id).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
     }
 }
+
+/// <summary>Agent definitions.</summary>
+internal sealed class SqliteAgentStore(IDbContextFactory<NetCoreAIDbContext> factory) : IAgentStore
+{
+    public async Task<IReadOnlyList<AgentDefinition>> ListAsync(CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await db.Agents.AsNoTracking().OrderBy(a => a.Name).Select(a => a.Json).ToListAsync(cancellationToken).ConfigureAwait(false);
+        return [.. rows.Select(SqliteMetadataStore.Deserialize<AgentDefinition>)];
+    }
+
+    public async Task<AgentDefinition?> GetAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var json = await db.Agents.AsNoTracking().Where(a => a.Id == id).Select(a => a.Json).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        return json is null ? null : SqliteMetadataStore.Deserialize<AgentDefinition>(json);
+    }
+
+    public async Task UpsertAsync(AgentDefinition agent, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(agent);
+
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var row = await db.Agents.FindAsync([agent.Id], cancellationToken).ConfigureAwait(false);
+        if (row is null)
+        {
+            row = new AgentRow { Id = agent.Id };
+            db.Agents.Add(row);
+        }
+
+        row.Name = agent.Name;
+        row.Json = SqliteMetadataStore.Serialize(agent);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task DeleteAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await db.Agents.Where(a => a.Id == id).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+    }
+}
+
+/// <summary>
+/// Run traces.
+/// </summary>
+/// <remarks>
+/// The fastest-growing table here: one row per agent run, each carrying every tool call. Listing is capped
+/// and pruning is by age, because "show me the runs" on a busy host must not read a year of them.
+/// </remarks>
+internal sealed class SqliteRunStore(IDbContextFactory<NetCoreAIDbContext> factory) : IRunStore
+{
+    public async Task<IReadOnlyList<RunTrace>> ListAsync(string? agentId = null, int limit = 50, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var query = db.Runs.AsNoTracking().AsQueryable();
+        if (agentId is not null)
+        {
+            query = query.Where(r => r.AgentId == agentId);
+        }
+
+        var rows = await query
+            .OrderByDescending(r => r.StartedAtTicks)
+            .Take(Math.Clamp(limit, 1, 500))
+            .Select(r => r.Json)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        return [.. rows.Select(SqliteMetadataStore.Deserialize<RunTrace>)];
+    }
+
+    public async Task<RunTrace?> GetAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var json = await db.Runs.AsNoTracking().Where(r => r.Id == id).Select(r => r.Json).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        return json is null ? null : SqliteMetadataStore.Deserialize<RunTrace>(json);
+    }
+
+    public async Task UpsertAsync(RunTrace run, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var row = await db.Runs.FindAsync([run.Id], cancellationToken).ConfigureAwait(false);
+        if (row is null)
+        {
+            row = new RunRow { Id = run.Id, AgentId = run.AgentId, StartedAtTicks = run.StartedAt.UtcTicks };
+            db.Runs.Add(row);
+        }
+
+        row.Json = SqliteMetadataStore.Serialize(run);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var cutoff = olderThan.UtcTicks;
+        return await db.Runs.Where(r => r.StartedAtTicks < cutoff).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+    }
+}

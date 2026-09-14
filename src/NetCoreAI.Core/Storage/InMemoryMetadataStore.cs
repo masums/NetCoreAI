@@ -20,6 +20,8 @@ public sealed class InMemoryMetadataStore : IMetadataStore
     private readonly ConcurrentDictionary<string, KnowledgeDocument> _documents = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, JobRecord> _jobs = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, ToolDefinition> _tools = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, AgentDefinition> _agents = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, RunTrace> _runs = new(StringComparer.OrdinalIgnoreCase);
 
     public InMemoryMetadataStore()
     {
@@ -32,6 +34,8 @@ public sealed class InMemoryMetadataStore : IMetadataStore
         Knowledge = new KnowledgeStore(_knowledgeBases, _dataSources, _documents);
         Jobs = new JobStore(_jobs);
         Tools = new ToolStore(_tools);
+        Agents = new AgentStore(_agents);
+        Runs = new RunStore(_runs);
     }
 
     public IModelStore Models { get; }
@@ -43,10 +47,42 @@ public sealed class InMemoryMetadataStore : IMetadataStore
     public IKnowledgeStore Knowledge { get; }
     public IJobStore Jobs { get; }
     public IToolStore Tools { get; }
+    public IAgentStore Agents { get; }
+    public IRunStore Runs { get; }
 
     public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
     public Task<bool> IsHealthyAsync(CancellationToken cancellationToken = default) => Task.FromResult(true);
+
+    private sealed class AgentStore(ConcurrentDictionary<string, AgentDefinition> d) : IAgentStore
+    {
+        public Task<IReadOnlyList<AgentDefinition>> ListAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<AgentDefinition>>(d.Values.OrderBy(a => a.Name, StringComparer.Ordinal).ToList());
+        public Task<AgentDefinition?> GetAsync(string id, CancellationToken ct = default) => Task.FromResult(d.GetValueOrDefault(id));
+        public Task UpsertAsync(AgentDefinition agent, CancellationToken ct = default) { d[agent.Id] = agent; return Task.CompletedTask; }
+        public Task DeleteAsync(string id, CancellationToken ct = default) { d.TryRemove(id, out _); return Task.CompletedTask; }
+    }
+
+    private sealed class RunStore(ConcurrentDictionary<string, RunTrace> d) : IRunStore
+    {
+        public Task<IReadOnlyList<RunTrace>> ListAsync(string? agentId = null, int limit = 50, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<RunTrace>>(d.Values
+                .Where(r => agentId is null || r.AgentId == agentId)
+                .OrderByDescending(r => r.StartedAt)
+                .Take(Math.Clamp(limit, 1, 500))
+                .ToList());
+        public Task<RunTrace?> GetAsync(string id, CancellationToken ct = default) => Task.FromResult(d.GetValueOrDefault(id));
+        public Task UpsertAsync(RunTrace run, CancellationToken ct = default) { d[run.Id] = run; return Task.CompletedTask; }
+        public Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default)
+        {
+            var stale = d.Values.Where(r => r.StartedAt < olderThan).Select(r => r.Id).ToList();
+            foreach (var id in stale)
+            {
+                d.TryRemove(id, out _);
+            }
+
+            return Task.FromResult(stale.Count);
+        }
+    }
 
     private sealed class ToolStore(ConcurrentDictionary<string, ToolDefinition> d) : IToolStore
     {
