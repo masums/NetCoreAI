@@ -365,3 +365,51 @@ internal sealed class SqliteRunStore(IDbContextFactory<NetCoreAIDbContext> facto
         return await db.Runs.Where(r => r.StartedAtTicks < cutoff).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
     }
 }
+
+/// <summary>API keys. Only hashes are kept, so this table cannot hand anyone a working key.</summary>
+internal sealed class SqliteApiKeyStore(IDbContextFactory<NetCoreAIDbContext> factory) : IApiKeyStore
+{
+    public async Task<IReadOnlyList<ApiKey>> ListAsync(CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await db.ApiKeys.AsNoTracking().Select(k => k.Json).ToListAsync(cancellationToken).ConfigureAwait(false);
+        return [.. rows.Select(SqliteMetadataStore.Deserialize<ApiKey>).OrderBy(k => k.Name, StringComparer.Ordinal)];
+    }
+
+    public async Task<ApiKey?> GetAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var json = await db.ApiKeys.AsNoTracking().Where(k => k.Id == id).Select(k => k.Json).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        return json is null ? null : SqliteMetadataStore.Deserialize<ApiKey>(json);
+    }
+
+    public async Task<ApiKey?> FindByHashAsync(string hash, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var json = await db.ApiKeys.AsNoTracking().Where(k => k.Hash == hash).Select(k => k.Json).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        return json is null ? null : SqliteMetadataStore.Deserialize<ApiKey>(json);
+    }
+
+    public async Task UpsertAsync(ApiKey key, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var row = await db.ApiKeys.FindAsync([key.Id], cancellationToken).ConfigureAwait(false);
+        if (row is null)
+        {
+            row = new ApiKeyRow { Id = key.Id };
+            db.ApiKeys.Add(row);
+        }
+
+        row.Hash = key.Hash;
+        row.Json = SqliteMetadataStore.Serialize(key);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task DeleteAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await db.ApiKeys.Where(k => k.Id == id).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+    }
+}

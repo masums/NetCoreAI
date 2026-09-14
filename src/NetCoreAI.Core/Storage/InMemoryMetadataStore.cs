@@ -22,6 +22,7 @@ public sealed class InMemoryMetadataStore : IMetadataStore
     private readonly ConcurrentDictionary<string, ToolDefinition> _tools = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, AgentDefinition> _agents = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, RunTrace> _runs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, ApiKey> _apiKeys = new(StringComparer.OrdinalIgnoreCase);
 
     public InMemoryMetadataStore()
     {
@@ -36,6 +37,7 @@ public sealed class InMemoryMetadataStore : IMetadataStore
         Tools = new ToolStore(_tools);
         Agents = new AgentStore(_agents);
         Runs = new RunStore(_runs);
+        ApiKeys = new ApiKeyStore(_apiKeys);
     }
 
     public IModelStore Models { get; }
@@ -49,10 +51,20 @@ public sealed class InMemoryMetadataStore : IMetadataStore
     public IToolStore Tools { get; }
     public IAgentStore Agents { get; }
     public IRunStore Runs { get; }
+    public IApiKeyStore ApiKeys { get; }
 
     public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
     public Task<bool> IsHealthyAsync(CancellationToken cancellationToken = default) => Task.FromResult(true);
+
+    private sealed class ApiKeyStore(ConcurrentDictionary<string, ApiKey> d) : IApiKeyStore
+    {
+        public Task<IReadOnlyList<ApiKey>> ListAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<ApiKey>>(d.Values.OrderBy(k => k.Name, StringComparer.Ordinal).ToList());
+        public Task<ApiKey?> GetAsync(string id, CancellationToken ct = default) => Task.FromResult(d.GetValueOrDefault(id));
+        public Task<ApiKey?> FindByHashAsync(string hash, CancellationToken ct = default) => Task.FromResult(d.Values.FirstOrDefault(k => string.Equals(k.Hash, hash, StringComparison.Ordinal)));
+        public Task UpsertAsync(ApiKey key, CancellationToken ct = default) { d[key.Id] = key; return Task.CompletedTask; }
+        public Task DeleteAsync(string id, CancellationToken ct = default) { d.TryRemove(id, out _); return Task.CompletedTask; }
+    }
 
     private sealed class AgentStore(ConcurrentDictionary<string, AgentDefinition> d) : IAgentStore
     {

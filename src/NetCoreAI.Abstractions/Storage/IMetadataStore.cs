@@ -33,6 +33,8 @@ public interface IMetadataStore
     IAgentStore Agents { get; }
 
     IRunStore Runs { get; }
+
+    IApiKeyStore ApiKeys { get; }
 }
 
 public interface IModelStore
@@ -111,6 +113,18 @@ public interface IKnowledgeStore
 }
 
 /// <summary>Persistence for background jobs, so progress and failures survive a restart.</summary>
+/// <summary>API keys, stored as hashes.</summary>
+public interface IApiKeyStore
+{
+    Task<IReadOnlyList<ApiKey>> ListAsync(CancellationToken cancellationToken = default);
+    Task<ApiKey?> GetAsync(string id, CancellationToken cancellationToken = default);
+
+    /// <summary>Finds a key by the hash of the presented secret. The only way a key is looked up on a call.</summary>
+    Task<ApiKey?> FindByHashAsync(string hash, CancellationToken cancellationToken = default);
+    Task UpsertAsync(ApiKey key, CancellationToken cancellationToken = default);
+    Task DeleteAsync(string id, CancellationToken cancellationToken = default);
+}
+
 /// <summary>Agent definitions.</summary>
 public interface IAgentStore
 {

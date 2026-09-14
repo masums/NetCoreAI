@@ -128,6 +128,7 @@ public static class NetCoreAIServiceCollectionExtensions
         services.TryAddSingleton<NetCoreAI.Agents.IAgentEngine, NetCoreAI.Agents.AgentEngine>();
         services.TryAddSingleton<NetCoreAI.Agents.IAgentService, NetCoreAI.Agents.AgentService>();
         services.TryAddSingleton<IAgentClient, NetCoreAI.Agents.AgentClient>();
+        services.TryAddSingleton<NetCoreAI.Security.IApiKeyService, NetCoreAI.Security.ApiKeyService>();
 
         // Registered here rather than left to the host: without it the in-process IAgentClient cannot see
         // the current request, so an agent run from inside one would silently act as nobody — no

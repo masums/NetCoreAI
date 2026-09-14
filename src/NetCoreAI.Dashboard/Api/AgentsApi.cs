@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using NetCoreAI.Agents;
+using NetCoreAI.Security;
 
 namespace NetCoreAI.Dashboard.Api;
 
@@ -37,12 +38,19 @@ internal static class AgentsApi
         }).WithName("NetCoreAI.Agents.Delete");
 
         agents.MapPost("/{id}/run", async (string id, AgentRequest request, IAgentService service, HttpContext http, CancellationToken ct) =>
-            Results.Ok(await service.RunAsync(id, request, Caller(http), ct))).WithName("NetCoreAI.Agents.Run");
+            Refused(http, id) ?? Results.Ok(await service.RunAsync(id, request, Caller(http), ct))).WithName("NetCoreAI.Agents.Run");
 
         // Server-Sent Events: delta*, citations, step*, done | error. Same shape the chat playground uses,
         // so one client can read either.
         agents.MapPost("/{id}/run/stream", async (string id, AgentRequest request, IAgentService service, HttpContext http, CancellationToken ct) =>
         {
+            if (Refused(http, id) is { } refusal)
+            {
+                // Checked before the stream starts: a refusal written as an SSE event would be read by a
+                // client as an answer that happened to fail, rather than as a call that was never made.
+                return refusal;
+            }
+
             http.Response.Headers.ContentType = "text/event-stream";
             http.Response.Headers.CacheControl = "no-cache";
             http.Response.Headers["X-Accel-Buffering"] = "no";
@@ -66,6 +74,8 @@ internal static class AgentsApi
             {
                 // The caller went away mid-run; the trace is already written.
             }
+
+            return Results.Empty;
         }).WithName("NetCoreAI.Agents.RunStream");
 
         agents.MapGet("/{id}/runs", async (string id, IAgentService service, int limit = 50, CancellationToken ct = default) =>
@@ -74,6 +84,21 @@ internal static class AgentsApi
         api.MapGet("/runs/{runId}", async (string runId, IAgentService service, CancellationToken ct) =>
             await service.GetRunAsync(runId, ct) is { } run ? Results.Ok(run) : Results.NotFound()).WithName("NetCoreAI.Runs.Get");
     }
+
+    /// <summary>
+    /// Whether an API key scoped to particular agents may run this one.
+    /// </summary>
+    /// <remarks>
+    /// Only applies when the caller presented a key. A person signed in to the dashboard is governed by
+    /// the dashboard's own authorization and by the agent's access tags, not by a key's scopes.
+    /// </remarks>
+    private static IResult? Refused(HttpContext http, string agentId) =>
+        http.ApiKey() is { } key && !key.CanRun(agentId)
+            ? Results.Problem(
+                $"This API key is not scoped to run '{agentId}'.",
+                statusCode: StatusCodes.Status403Forbidden,
+                title: "Out of scope")
+            : null;
 
     /// <summary>
     /// The caller a run acts as.

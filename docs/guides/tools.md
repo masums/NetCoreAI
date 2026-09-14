@@ -114,3 +114,34 @@ The trial runs as **you**, not as the host, so a tool you could not use does not
 | POST | `/api/tools/from-endpoint/{endpointId}` | Build a tool from a discovered endpoint |
 | POST | `/api/tools/import-openapi` | Import an OpenAPI 3.x document |
 | POST | `/api/tools/{id}/test` | Run one trial call, with given or model-chosen arguments |
+
+## Reaching this host from another application
+
+```csharp
+builder.Services.AddNetCoreAIClient(o =>
+{
+    o.BaseUrl = new Uri("https://myapp.example.com/netcoreai");
+    o.ApiKey = builder.Configuration["NetCoreAI:ApiKey"];
+});
+```
+
+That registers `IAgentClient` and `IKnowledgeClient` against the remote host — the same interfaces `AddNetCoreAI()` registers in-process, so the calling code is identical either way.
+
+The host has to accept keys, which is two lines because it changes who can reach your API:
+
+```csharp
+builder.Services.AddAuthentication().AddNetCoreAIApiKey();
+builder.Services.AddNetCoreAI(o => o.Dashboard.Authorization = p => p
+    .AddAuthenticationSchemes(CookieAuthenticationDefaults.AuthenticationScheme, ApiKeyAuthenticationHandler.SchemeName)
+    .RequireAuthenticatedUser());
+```
+
+Keys are made on the API (`POST /netcoreai/api/keys`) and the secret is shown **once**: only a hash is stored, so a stolen database yields no working keys and a lost secret is replaced rather than recovered.
+
+A key carries:
+
+- **Scopes** — which agents it may run and which knowledge bases it may search. Empty means *none*, because the safe reading of "nobody said what this may do" is "nothing". `*` means everything.
+- **Claims** — a service identity. These decide which documents it can retrieve and which agents its access tags allow, exactly as a person's claims would, so granting one grants everything that claim grants.
+- **A rate limit** per minute, **an allow-list** of addresses or CIDR ranges, and **an expiry**.
+
+The rate limit is counted per key **in each process**. Behind a load balancer, each instance allows the configured rate, so the effective limit is the limit times the number of instances — a deliberate simplification, since a shared counter would mean a shared store that NetCoreAI does not otherwise require.

@@ -26,6 +26,7 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
     public DbSet<ToolRow> Tools => Set<ToolRow>();
     public DbSet<AgentRow> Agents => Set<AgentRow>();
     public DbSet<RunRow> Runs => Set<RunRow>();
+    public DbSet<ApiKeyRow> ApiKeys => Set<ApiKeyRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -88,6 +89,14 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
         {
             e.ToTable("Agents");
             e.HasKey(x => x.Id);
+        });
+        modelBuilder.Entity<ApiKeyRow>(e =>
+        {
+            e.ToTable("ApiKeys");
+            e.HasKey(x => x.Id);
+
+            // Every authenticated call looks a key up by hash, so this index is on the hot path.
+            e.HasIndex(x => x.Hash).IsUnique();
         });
         modelBuilder.Entity<RunRow>(e =>
         {
@@ -209,6 +218,13 @@ public sealed class AgentRow
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
+    public string Json { get; set; } = "";
+}
+
+public sealed class ApiKeyRow
+{
+    public string Id { get; set; } = "";
+    public string Hash { get; set; } = "";
     public string Json { get; set; } = "";
 }
 

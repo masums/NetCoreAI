@@ -137,7 +137,7 @@ Not a product phase, but required before Phase 1 can start.
 - [x] `IAgentClient` (§7.8.1): `RunAsync`, `RunStreamingAsync`, generic `RunAsync<T>`; DI-resolvable; session persistence — *in-process and HTTP; the generic `RunAsync<T>` waits for structured-output validation*
 - [ ] `IChatClientFactory` for raw model access by alias
 - [x] HTTP API (§7.8.2): `POST /netcoreai/api/agents/{id}/run`, `.../run/stream` (SSE), sessions CRUD, feedback endpoint — *run and run/stream done; the feedback endpoint is outstanding*
-- [ ] API keys: scopes (per agent/KB), rate limits, IP allow-list, dashboard management
+- [x] API keys: scopes (per agent/KB), rate limits, IP allow-list, dashboard management — *issued and managed on the API; the dashboard page for them is outstanding. Rate limits are per process, so a load-balanced host allows the limit times the instance count*
 - [ ] OpenAPI document for the NetCoreAI API itself
 - [x] Identity/security invariant: tool invocation always runs under caller identity unless explicitly configured; model can never set identity-bearing params — *two defences, both mutation-tested: a locked parameter is absent from the schema, and the binder ignores one the model sends anyway*
 - [ ] OpenTelemetry coverage extended to tool calls and agent runs (GenAI semantic conventions)
