@@ -135,7 +135,7 @@ Not a product phase, but required before Phase 1 can start.
 
 ### Agent Runtime & Integration API
 - [x] `IAgentClient` (§7.8.1): `RunAsync`, `RunStreamingAsync`, generic `RunAsync<T>`; DI-resolvable; session persistence — *in-process and HTTP; the generic `RunAsync<T>` waits for structured-output validation*
-- [ ] `IChatClientFactory` for raw model access by alias
+- [x] `IChatClientFactory` for raw model access by alias — *delivered in Phase 1 and used throughout; the checkbox here was stale*
 - [x] HTTP API (§7.8.2): `POST /netcoreai/api/agents/{id}/run`, `.../run/stream` (SSE), sessions CRUD, feedback endpoint — *run and run/stream done; the feedback endpoint is outstanding*
 - [x] API keys: scopes (per agent/KB), rate limits, IP allow-list, dashboard management — *rate limits are per process, so a load-balanced host allows the limit times the instance count*
 - [x] OpenAPI document for the NetCoreAI API itself — *at `/netcoreai/openapi/v1.json`, written from the route table rather than by adding an OpenAPI generator to the package every host references; bodies are named rather than fully schematised*
