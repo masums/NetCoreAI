@@ -138,9 +138,9 @@ Not a product phase, but required before Phase 1 can start.
 - [ ] `IChatClientFactory` for raw model access by alias
 - [x] HTTP API (§7.8.2): `POST /netcoreai/api/agents/{id}/run`, `.../run/stream` (SSE), sessions CRUD, feedback endpoint — *run and run/stream done; the feedback endpoint is outstanding*
 - [x] API keys: scopes (per agent/KB), rate limits, IP allow-list, dashboard management — *issued and managed on the API; the dashboard page for them is outstanding. Rate limits are per process, so a load-balanced host allows the limit times the instance count*
-- [ ] OpenAPI document for the NetCoreAI API itself
+- [x] OpenAPI document for the NetCoreAI API itself — *at `/netcoreai/openapi/v1.json`, written from the route table rather than by adding an OpenAPI generator to the package every host references; bodies are named rather than fully schematised*
 - [x] Identity/security invariant: tool invocation always runs under caller identity unless explicitly configured; model can never set identity-bearing params — *two defences, both mutation-tested: a locked parameter is absent from the schema, and the binder ignores one the model sends anyway*
-- [ ] OpenTelemetry coverage extended to tool calls and agent runs (GenAI semantic conventions)
+- [x] OpenTelemetry coverage extended to tool calls and agent runs (GenAI semantic conventions) — *the tool span enriches the one Microsoft.Extensions.AI already emits rather than nesting a second inside it*
 - [x] `GET/POST/PUT/DELETE /api/tools`, `/api/tools/discover`, `/api/tools/import-openapi`, `/api/tools/{id}/test`
 - [x] `GET/POST/PUT/DELETE /api/agents`, `/api/agents/{id}/run(/stream)`, `/api/agents/{id}/runs`
 

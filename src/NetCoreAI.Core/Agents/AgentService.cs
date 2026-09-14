@@ -172,6 +172,7 @@ internal sealed partial class AgentService(
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        using var activity = NetCoreAI.Telemetry.NetCoreAITelemetry.StartAgentRun(agent.Id, agent.Name, agent.Model);
         var steps = new List<RunStep>();
         var run = new RunTrace
         {
@@ -215,6 +216,7 @@ internal sealed partial class AgentService(
             // failure is visible in the same place as every other, rather than only in the logs.
             var reason = setupError ?? "The agent could not be prepared.";
             await FailAsync(run, steps, reason, started, cancellationToken).ConfigureAwait(false);
+            Record(agent, activity, false, (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, reason);
             yield return new AgentEvent(AgentEvent.ErrorType) { Error = reason };
             yield break;
         }
@@ -334,6 +336,13 @@ internal sealed partial class AgentService(
 
         await store.Runs.UpsertAsync(finished, CancellationToken.None).ConfigureAwait(false);
 
+        activity?.SetTag("gen_ai.response.model", finished.ModelId);
+        activity?.SetTag("gen_ai.usage.input_tokens", finished.InputTokens);
+        activity?.SetTag("gen_ai.usage.output_tokens", finished.OutputTokens);
+        activity?.SetTag("netcoreai.run.id", finished.Id);
+        activity?.SetTag("netcoreai.run.tool_calls", steps.Count(s => s.Kind == RunStep.ToolKind));
+        Record(agent, activity, finished.Success, elapsed, error);
+
         if (error is not null && answer.Length == 0)
         {
             yield return new AgentEvent(AgentEvent.ErrorType) { Error = error };
@@ -354,6 +363,28 @@ internal sealed partial class AgentService(
                 Error = error,
             },
         };
+    }
+
+    /// <summary>
+    /// Puts a run's outcome on its span and the meters.
+    /// </summary>
+    /// <remarks>
+    /// The question and the answer are left off. A run carries whatever a person asked, telemetry goes
+    /// wherever the host exports it, and a support conversation is not something to put there by default.
+    /// The trace in the database holds the content; this holds the shape.
+    /// </remarks>
+    private static void Record(AgentDefinition agent, System.Diagnostics.Activity? activity, bool success, long elapsedMs, string? error)
+    {
+        var tags = new System.Diagnostics.TagList
+        {
+            { "agent", agent.Id },
+            { "model", agent.Model },
+            { "success", success },
+        };
+
+        NetCoreAI.Telemetry.NetCoreAITelemetry.AgentRuns.Add(1, tags);
+        NetCoreAI.Telemetry.NetCoreAITelemetry.AgentRunDuration.Record(elapsedMs, tags);
+        NetCoreAI.Telemetry.NetCoreAITelemetry.Finish(activity, success, error);
     }
 
     /// <summary>The messages to send: the rendered system prompt, the remembered window, then the question.</summary>

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -54,6 +55,7 @@ internal sealed class ToolInvoker(
         }
 
         var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var activity = NetCoreAI.Telemetry.NetCoreAITelemetry.ToolCallSpan(tool.Name, tool.Kind.ToString(), out var ownsSpan);
         try
         {
             var bound = ToolBinding.Bind(tool, arguments, context);
@@ -72,33 +74,66 @@ internal sealed class ToolInvoker(
                 // The status is part of the answer: 403 means the caller may not do this, and the model
                 // should say so rather than retrying or inventing a result.
                 logger.LogInformation("Tool {Name} returned {Status}.", tool.Name, status);
-                return new ToolCallResult(
+                return Record(tool, activity, new ToolCallResult(
                     $"The call failed with HTTP {status}. {Truncate(body, 1024)}".TrimEnd(),
                     Success: false,
                     status,
-                    elapsed);
+                    elapsed));
             }
 
-            return new ToolCallResult(Shape(tool, body), Success: true, status, elapsed);
+            return Record(tool, activity, new ToolCallResult(Shape(tool, body), Success: true, status, elapsed));
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return new ToolCallResult(
+            return Record(tool, activity, new ToolCallResult(
                 $"The call took longer than {tool.TimeoutSeconds} seconds and was abandoned.",
                 Success: false,
-                ElapsedMs: (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+                ElapsedMs: (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds));
         }
         catch (NetCoreAIException ex)
         {
             // A binding failure: something the host was meant to supply was missing. The model cannot fix
             // it, so it is told plainly rather than being invited to guess at arguments.
-            return new ToolCallResult(ex.Message, Success: false, ElapsedMs: (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            return Record(tool, activity, new ToolCallResult(ex.Message, Success: false, ElapsedMs: (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds));
         }
         catch (HttpRequestException ex)
         {
             logger.LogWarning(ex, "Tool {Name} could not be reached.", tool.Name);
-            return new ToolCallResult($"The service could not be reached: {ex.Message}", Success: false, ElapsedMs: (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            return Record(tool, activity, new ToolCallResult($"The service could not be reached: {ex.Message}", Success: false, ElapsedMs: (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds));
         }
+        finally
+        {
+            // Only ended by whoever started it: ending somebody else's span would cut their trace short.
+            if (ownsSpan)
+            {
+                activity?.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Puts the outcome on the span and the meters.
+    /// </summary>
+    /// <remarks>
+    /// The arguments and the response are left off deliberately. A tool call carries whatever the caller
+    /// was asking about — an order number, a customer, a medical record — and telemetry goes wherever the
+    /// host exports it. What is counted is that a call happened, to what, and whether it worked.
+    /// </remarks>
+    private static ToolCallResult Record(ToolDefinition tool, System.Diagnostics.Activity? activity, ToolCallResult result)
+    {
+        var tags = new TagList
+        {
+            { "tool", tool.Name },
+            { "kind", tool.Kind.ToString() },
+            { "success", result.Success },
+        };
+
+        NetCoreAI.Telemetry.NetCoreAITelemetry.ToolCalls.Add(1, tags);
+        NetCoreAI.Telemetry.NetCoreAITelemetry.ToolCallDuration.Record(result.ElapsedMs, tags);
+
+        activity?.SetTag("http.response.status_code", result.StatusCode);
+        NetCoreAI.Telemetry.NetCoreAITelemetry.Finish(activity, result.Success, result.Success ? null : result.Output);
+        return result;
     }
 
     private async Task<(int Status, string Body)> OverHttpAsync(ToolDefinition tool, BoundArguments bound, ToolCallContext context, CancellationToken cancellationToken)

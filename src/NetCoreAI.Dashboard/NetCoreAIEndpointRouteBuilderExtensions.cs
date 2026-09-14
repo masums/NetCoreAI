@@ -52,6 +52,7 @@ public static class NetCoreAIEndpointRouteBuilderExtensions
         }).AllowAnonymous().ExcludeFromDescription();
 
         PagesApi.Map(group);
+        OpenApiDocument.Map(group, path);
         var api = group.MapGroup("/api");
 
         // One place turns a NetCoreAI failure into an HTTP response. Without it these surface as unhandled

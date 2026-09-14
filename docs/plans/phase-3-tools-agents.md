@@ -35,7 +35,7 @@ Abstractions added: `ToolDefinition`, `IToolProvider`, `[AITool]`, `AgentDefinit
 ### WP3.6 Agent playground — done (runs are saved and re-readable rather than named and pinned)
 Interactive page: chat with a trace drawer per turn; saved test conversations; capability-aware UI (no tools toggle for models without ToolCalling).
 
-### WP3.7 `IAgentClient` + HTTP API + API keys — clients, the run API and API keys done; the keys dashboard page, the OpenAPI document and OTel spans outstanding
+### WP3.7 `IAgentClient` + HTTP API + API keys — done bar the keys dashboard page (keys are managed on the API)
 `NetCoreAI.Client`: `AgentClient` (in-process, DI), `HttpAgentClient` (`AddNetCoreAIClient(baseUrl, apiKey)`), generic `RunAsync<T>`. Endpoints `run`, `run/stream` (SSE `AgentEvent` JSON lines), sessions CRUD, feedback. `ApiKeys` entity (hashed, scopes per agent/KB, rate limit via `RateLimiter`, IP allow-list), `ApiKeyAuthenticationHandler` scoped to `/netcoreai/api`. OpenAPI document for the NetCoreAI API at `/netcoreai/openapi/v1.json`. OTel spans for tool calls and agent runs (`gen_ai.agent.*`, `gen_ai.tool.*`).
 
 ### WP3.8 Acceptance
