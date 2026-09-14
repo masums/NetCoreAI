@@ -303,6 +303,104 @@ public sealed class ApiKeyTests : IAsyncLifetime
         Assert.Equal(created.Key.Id, trace!.UserId);
     }
 
+    // ---------- through the API, as the dashboard does it ----------
+
+    [Fact]
+    public async Task A_key_can_be_created_through_the_api_without_sending_a_hash()
+    {
+        var admin = await KeyAsync(agentIds: ApiKey.All);
+
+        // The dashboard sends only what a caller may decide. Binding the endpoint to the stored record
+        // instead asked for a hash and a prefix — required members the caller cannot know — which made
+        // the endpoint impossible to call at all, and every test that used the service directly missed it.
+        var response = await ClientWith(admin.Secret).PostAsJsonAsync(
+            "/netcoreai/api/keys",
+            new { name = "Orders portal", agentIds = new[] { "helper" }, claims = new[] { "role=support" }, rateLimitPerMinute = 60 },
+            Ct);
+
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync(Ct));
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        Assert.StartsWith("ncai_", body.GetProperty("secret").GetString()!, StringComparison.Ordinal);
+        Assert.Equal("Orders portal", body.GetProperty("key").GetProperty("name").GetString());
+        Assert.Equal(60, body.GetProperty("key").GetProperty("rateLimitPerMinute").GetInt32());
+    }
+
+    [Fact]
+    public async Task A_key_created_through_the_api_works_and_respects_its_scope()
+    {
+        var admin = await KeyAsync(agentIds: ApiKey.All);
+        var created = await (await ClientWith(admin.Secret).PostAsJsonAsync(
+            "/netcoreai/api/keys",
+            new { name = "Scoped", agentIds = new[] { "helper" } },
+            Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+
+        var client = ClientWith(created.GetProperty("secret").GetString()!);
+
+        Assert.True((await client.PostAsJsonAsync("/netcoreai/api/agents/helper/run", new { message = "hi" }, Ct)).IsSuccessStatusCode);
+        Assert.Equal(
+            HttpStatusCode.Forbidden,
+            (await client.PostAsJsonAsync("/netcoreai/api/agents/other/run", new { message = "hi" }, Ct)).StatusCode);
+    }
+
+    [Fact]
+    public async Task An_update_through_the_api_cannot_smuggle_in_a_chosen_hash()
+    {
+        var admin = await KeyAsync(agentIds: ApiKey.All);
+        var target = await KeyAsync(agentIds: "helper");
+
+        var response = await ClientWith(admin.Secret).PutAsJsonAsync(
+            $"/netcoreai/api/keys/{target.Key.Id}",
+            new { name = "Renamed", hash = "0000", prefix = "ncai_evil", agentIds = new[] { "helper" } },
+            Ct);
+
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync(Ct));
+
+        // The name changed; the secret did not, and the old one still works.
+        var stored = Assert.Single(await Keys.ListAsync(Ct), k => k.Id == target.Key.Id);
+        Assert.Equal("Renamed", stored.Name);
+        Assert.Equal(target.Key.Hash, stored.Hash);
+        Assert.True((await ClientWith(target.Secret).GetAsync("/netcoreai/api/agents", Ct)).IsSuccessStatusCode);
+    }
+
+    // ---------- the page ----------
+
+    [Fact]
+    public async Task The_keys_page_lists_keys_by_prefix_and_never_by_secret()
+    {
+        var created = await KeyAsync(agentIds: ApiKey.All);
+
+        var html = await ClientWith(created.Secret).GetStringAsync("/netcoreai/keys", Ct);
+
+        Assert.Contains("Test key", html, StringComparison.Ordinal);
+        Assert.Contains(created.Key.Prefix, html, StringComparison.Ordinal);
+
+        // The prefix is there so a key can be recognised; the rest of the secret must never be.
+        Assert.DoesNotContain(created.Secret, html, StringComparison.Ordinal);
+        Assert.DoesNotContain(created.Key.Hash, html, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task The_page_says_plainly_what_an_empty_scope_means()
+    {
+        var created = await KeyAsync(agentIds: ApiKey.All);
+
+        var html = await ClientWith(created.Secret).GetStringAsync("/netcoreai/keys", Ct);
+
+        // "Nothing" rather than a blank cell: a reader scanning the table should not have to guess whether
+        // an empty scope means everything or nothing.
+        Assert.Contains("nothing", html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("everything", html, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task The_keys_page_is_in_the_navigation()
+    {
+        var created = await KeyAsync(agentIds: ApiKey.All);
+
+        Assert.Contains("/netcoreai/keys", await ClientWith(created.Secret).GetStringAsync("/netcoreai", Ct), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Deleting_a_key_stops_it_immediately()
     {

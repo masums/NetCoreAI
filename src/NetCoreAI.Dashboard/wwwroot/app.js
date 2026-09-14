@@ -90,6 +90,9 @@
       case 'kb-close': { const d = $('#kb-detail'); if (d) d.hidden = true; return; }
       case 'kb-delete-source': return confirm('Remove this source and the documents it brought in?') && guarded(async () => { await call('DELETE', `kb/${encodeURIComponent(btn.dataset.kb)}/sources/${encodeURIComponent(id)}`); reload(); }, btn);
       case 'kb-delete-document': return guarded(async () => { await call('DELETE', `kb/${encodeURIComponent(btn.dataset.kb)}/documents/${encodeURIComponent(id)}`); openKnowledgeBase(btn.dataset.kb); }, btn);
+      case 'key-edit': return guarded(() => openKey(id), btn);
+      case 'key-close': { const k = $('#key-detail'); if (k) k.hidden = true; return; }
+      case 'key-delete': return confirm(`Revoke "${name}"? Anything using it stops working at once.`) && guarded(async () => { await call('DELETE', `keys/${encodeURIComponent(id)}`); reload(); }, btn);
       case 'agent-edit': return guarded(() => openAgent(id), btn);
       case 'agent-try': return openAgentPlayground(id, name);
       case 'agent-runs': return guarded(() => openAgentRuns(id, name), btn);
@@ -448,6 +451,91 @@
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
     return html;
+  }
+
+  // ---------- api keys ----------
+  const keyDetail = $('#key-detail');
+
+  const commaList = (value) => (value ? value.split(',').map((v) => v.trim()).filter(Boolean) : []);
+
+  $('#key-form')?.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const d = formData(ev.target);
+    guarded(async () => {
+      const r = await call('POST', 'keys', {
+        name: d.name,
+        agentIds: $$('.key-agent:checked').map((c) => c.value),
+        knowledgeBaseIds: $$('.key-kb:checked').map((c) => c.value),
+        claims: commaList(d.claims),
+        ipAllowList: commaList(d.ipAllowList),
+        rateLimitPerMinute: d.rateLimitPerMinute ? Number(d.rateLimitPerMinute) : null,
+        expiresAt: d.expiresAt || null,
+      });
+
+      // Shown here and nowhere else, ever. The page does not reload on its own afterwards, because a
+      // reload would take the one copy of the secret with it.
+      $('#key-created').innerHTML = `
+        <div class="card" style="margin-top:12px">
+          <h3>Copy this now</h3>
+          <p class="muted small">This is the only time ${esc(r.key.name)} can be seen. Only a hash is stored, so it cannot be shown again — a lost key is replaced, not recovered.</p>
+          <pre class="small" id="key-secret">${esc(r.secret)}</pre>
+          <button class="btn small" type="button" id="key-copy">Copy</button>
+          <button class="btn small" type="button" id="key-done">I have saved it</button>
+        </div>`;
+
+      $('#key-copy').addEventListener('click', () => {
+        navigator.clipboard.writeText(r.secret);
+        toast('Copied.');
+      });
+
+      $('#key-done').addEventListener('click', () => location.reload());
+    });
+  });
+
+  async function openKey(id) {
+    const keys = await call('GET', 'keys');
+    const key = keys.find((k) => k.id === id);
+    if (!key) { toast('That key has gone.', true); return; }
+
+    $('#key-detail-title').textContent = key.name;
+    $('#key-detail-body').innerHTML = `
+      <form id="key-editor" class="grid-form">
+        <label>Name<input name="name" value="${esc(key.name)}" required /></label>
+        <label>Enabled<select name="enabled">
+          <option value="true"${key.enabled ? ' selected' : ''}>yes</option>
+          <option value="false"${key.enabled ? '' : ' selected'}>no</option></select></label>
+        <label>Requests per minute<input name="rateLimitPerMinute" type="number" min="1" value="${key.rateLimitPerMinute ?? ''}" placeholder="no limit" /></label>
+        <label>Expires<input name="expiresAt" type="date" value="${key.expiresAt ? key.expiresAt.slice(0, 10) : ''}" /></label>
+        <label class="wide">May run (comma separated ids, or *)<input name="agentIds" value="${esc((key.agentIds || []).join(', '))}" /></label>
+        <label class="wide">May search (comma separated ids, or *)<input name="knowledgeBaseIds" value="${esc((key.knowledgeBaseIds || []).join(', '))}" /></label>
+        <label class="wide">Claims<input name="claims" value="${esc((key.claims || []).join(', '))}" /></label>
+        <label class="wide">Addresses<input name="ipAllowList" value="${esc((key.ipAllowList || []).join(', '))}" /></label>
+        <label class="wide"><small class="muted">The secret cannot be changed here. Revoke this key and issue another if it may have leaked.</small></label>
+        <button class="btn" type="submit">Save</button>
+      </form>`;
+
+    keyDetail.hidden = false;
+    keyDetail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    $('#key-editor').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const d = formData(ev.target);
+      guarded(async () => {
+        await call('PUT', `keys/${encodeURIComponent(id)}`, {
+          ...key,
+          name: d.name,
+          enabled: d.enabled === 'true',
+          rateLimitPerMinute: d.rateLimitPerMinute ? Number(d.rateLimitPerMinute) : null,
+          expiresAt: d.expiresAt || null,
+          agentIds: commaList(d.agentIds),
+          knowledgeBaseIds: commaList(d.knowledgeBaseIds),
+          claims: commaList(d.claims),
+          ipAllowList: commaList(d.ipAllowList),
+        });
+        toast('Key saved.');
+        setTimeout(() => location.reload(), 700);
+      });
+    });
   }
 
   // ---------- agents ----------
