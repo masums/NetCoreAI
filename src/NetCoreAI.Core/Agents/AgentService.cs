@@ -55,6 +55,8 @@ internal sealed partial class AgentService(
     IAgentEngine engine,
     IModelRegistry registry,
     NetCoreAI.Telemetry.ICostEstimator costs,
+    NetCoreAI.Guardrails.IGuardrailService guardrails,
+    Microsoft.Extensions.Options.IOptions<NetCoreAIOptions> options,
     ILogger<AgentService> logger) : IAgentService
 {
     [GeneratedRegex("^[a-zA-Z][a-zA-Z0-9._-]{0,63}$")]
@@ -197,13 +199,55 @@ internal sealed partial class AgentService(
             AuthorizationHeader = caller.AuthorizationHeader,
         };
 
+        // The agent's own rules, or the host's defaults when it carries none.
+        var policy = agent.Guardrails ?? options.Value.Guardrails;
+
+        if (guardrails.CheckBudget(policy, agent.Id, request.SessionId, caller.UserId) is { } overspent)
+        {
+            await FailAsync(run, steps, overspent, started, cancellationToken).ConfigureAwait(false);
+            Record(agent, activity, false, (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, overspent);
+            yield return new AgentEvent(AgentEvent.ErrorType) { Error = overspent };
+            yield break;
+        }
+
+        // Checked before retrieval and before any model sees it, which is the last point at which masked
+        // data has not yet left the process.
+        var input = guardrails.CheckInput(policy, request.Message);
+        foreach (var finding in input.Findings)
+        {
+            steps.Add(new RunStep(RunStep.GuardrailKind, finding.Rule)
+            {
+                Output = finding.Detail,
+                Success = finding.Action != NetCoreAI.Guardrails.GuardrailAction.Block,
+            });
+        }
+
+        if (input.Blocked)
+        {
+            // Recorded as a run like any other. A refusal nobody can look up afterwards is a rule nobody
+            // can tune, and the first thing asked about one is always "what did they actually send?".
+            await FailAsync(run, steps, input.BlockedReason!, started, cancellationToken).ConfigureAwait(false);
+            Record(agent, activity, false, (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, input.BlockedReason);
+            NetCoreAI.Telemetry.NetCoreAITelemetry.GuardrailBlocks.Add(1, new System.Diagnostics.TagList { { "agent", agent.Id } });
+            yield return new AgentEvent(AgentEvent.ErrorType) { Error = input.BlockedReason };
+            yield break;
+        }
+
+        request = request with { Message = input.Text };
+        run = run with { Input = input.Text };
+
+        // Narrowed before the pipeline is built, so a tool this caller's role may not use is never put in
+        // front of the model at all rather than offered and refused on use.
+        var permitted = guardrails.AllowedTools(policy, agent.ToolIds, caller.User);
+        var effective = permitted.Count == agent.ToolIds.Count ? agent : agent with { ToolIds = permitted };
+
         AgentPipeline? pipeline = null;
         List<ChatMessage>? messages = null;
         string? setupError = null;
         try
         {
-            pipeline = await engine.BuildAsync(agent, context, ct).ConfigureAwait(false);
-            messages = await MessagesAsync(agent, request, caller, ct).ConfigureAwait(false);
+            pipeline = await engine.BuildAsync(effective, context, ct).ConfigureAwait(false);
+            messages = await MessagesAsync(effective, request, caller, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -221,6 +265,16 @@ internal sealed partial class AgentService(
             yield break;
         }
 
+        if (policy.Budget.MaxTokensPerRun > 0)
+        {
+            // Applied as a cap on the answer rather than as a check afterwards: a budget only enforced
+            // once the tokens are spent is a report, not a limit.
+            pipeline.Options.MaxOutputTokens = Math.Min(
+                pipeline.Options.MaxOutputTokens ?? int.MaxValue,
+                policy.Budget.MaxTokensPerRun);
+        }
+
+        var outputGuard = new NetCoreAI.Guardrails.StreamingOutputGuard(guardrails, policy);
         var text = new System.Text.StringBuilder();
         var citations = new List<Citation>();
         UsageDetails? usage = null;
@@ -264,9 +318,16 @@ internal sealed partial class AgentService(
                     switch (content)
                     {
                         case TextContent t when !string.IsNullOrEmpty(t.Text):
-                            text.Append(t.Text);
-                            yield return new AgentEvent(AgentEvent.DeltaType) { Text = t.Text };
+                        {
+                            var released = outputGuard.Push(t.Text);
+                            if (released.Length > 0)
+                            {
+                                text.Append(released);
+                                yield return new AgentEvent(AgentEvent.DeltaType) { Text = released };
+                            }
+
                             break;
+                        }
 
                         case UsageContent u:
                             usage = u.Details;
@@ -314,6 +375,18 @@ internal sealed partial class AgentService(
             await enumerator.DisposeAsync().ConfigureAwait(false);
         }
 
+        var tail = outputGuard.Flush();
+        if (tail.Length > 0)
+        {
+            text.Append(tail);
+            yield return new AgentEvent(AgentEvent.DeltaType) { Text = tail };
+        }
+
+        foreach (var finding in outputGuard.Findings)
+        {
+            steps.Add(new RunStep(RunStep.GuardrailKind, finding.Rule) { Output = "in the answer" });
+        }
+
         var elapsed = (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         var answer = text.ToString();
 
@@ -335,6 +408,13 @@ internal sealed partial class AgentService(
         };
 
         await store.Runs.UpsertAsync(finished, CancellationToken.None).ConfigureAwait(false);
+
+        guardrails.RecordUsage(
+            agent.Id,
+            request.SessionId,
+            caller.UserId,
+            (finished.InputTokens ?? 0) + (finished.OutputTokens ?? 0),
+            finished.EstimatedCost ?? 0);
 
         activity?.SetTag("gen_ai.response.model", finished.ModelId);
         activity?.SetTag("gen_ai.usage.input_tokens", finished.InputTokens);

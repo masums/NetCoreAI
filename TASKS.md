@@ -153,7 +153,7 @@ Not a product phase, but required before Phase 1 can start.
 - [ ] Cost/latency-aware routing rules (route by prompt length, tool requirement, user role)
 - [ ] Hybrid search (BM25 + vector, reciprocal rank fusion)
 - [ ] Re-ranking with local cross-encoder model
-- [ ] Guardrails (§7.7.3): input/output content rules, PII masking, prompt-injection heuristics, per-role tool allow-list, token/cost budgets
+- [x] Guardrails (§7.7.3): input/output content rules, PII masking, prompt-injection heuristics, per-role tool allow-list, token/cost budgets — *all off by default; budgets are per process like the API key rate limiter, and the injection heuristics are a tripwire rather than a wall — see [docs/guides/guardrails.md](docs/guides/guardrails.md)*
 - [ ] Agent versioning & publishing (§7.7.5): draft → published, rollback, changelog, environment export/import
 - [ ] Tool groups & versioning (§7.6.5): toolsets, versioned definitions, deprecation warnings
 - [x] Built-in tools (§7.6.6): knowledge search, date/time, calculator, allow-listed HTTP fetch, read-only SQL query with row limits — *the two with outside reach are not registered at all until configured, rather than present and refusing*

@@ -554,6 +554,14 @@
     });
   });
 
+  // Four settings rather than a checkbox: "notice it" is the one a host should start with, and a
+  // toggle would offer only the two ends.
+  function piiSelect(name, value) {
+    const chosen = value || 'Ignore';
+    return `<select name="${name}">${[['Ignore', 'leave alone'], ['Report', 'note in the trace'], ['Mask', 'replace it']]
+      .map(([v, label]) => `<option value="${v}"${v === chosen ? ' selected' : ''}>${label}</option>`).join('')}</select>`;
+  }
+
   async function openAgent(id) {
     const agent = await call('GET', `agents/${encodeURIComponent(id)}`);
     const models = agentOptions.models || [];
@@ -562,6 +570,7 @@
     const chosenTools = new Set(agent.toolIds || []);
     const chosenBases = new Set((agent.knowledge || []).map((k) => k.knowledgeBaseId));
     const model = models.find((m) => m.id === agent.model);
+    const g = agent.guardrails || {};
 
     $('#agent-detail-title').textContent = agent.name;
     $('#agent-detail-body').innerHTML = `
@@ -598,6 +607,22 @@
         <label>Turns remembered<input name="windowTurns" type="number" min="1" max="100" value="${agent.memory?.windowTurns ?? 10}" /></label>
         <label class="wide">Access tags — who may run this agent (comma separated; blank means anyone)
           <input name="aclTags" value="${esc((agent.aclTags || []).join(', '))}" placeholder="role:support" /></label>
+
+        <h3 class="wide">Guardrails</h3>
+        <p class="muted wide small">All off unless you turn them on. Findings appear in the run trace whichever setting you pick, so you can watch a rule before you let it refuse anyone.</p>
+        <label>Personal data in questions${piiSelect('piiInput', g.pii?.inputAction)}</label>
+        <label>Personal data in answers${piiSelect('piiOutput', g.pii?.outputAction)}</label>
+        <label>Longest question (characters, 0 = no limit)<input name="maxInputCharacters" type="number" min="0" value="${g.content?.maxInputCharacters ?? 0}" /></label>
+        <label>Refuse prompt-injection attempts<select name="injection">
+          <option value="false"${g.injection?.enabled ? '' : ' selected'}>no</option>
+          <option value="true"${g.injection?.enabled ? ' selected' : ''}>yes</option></select></label>
+        <label class="wide">Refused phrases — a question containing one is never sent to the model (comma separated)
+          <input name="blockedPhrases" value="${esc((g.content?.blockedPhrases || []).join(', '))}" /></label>
+        <label>Tokens per answer<input name="maxTokensPerRun" type="number" min="0" value="${g.budget?.maxTokensPerRun ?? 0}" /></label>
+        <label>Tokens per conversation<input name="maxTokensPerSession" type="number" min="0" value="${g.budget?.maxTokensPerSession ?? 0}" /></label>
+        <label>Tokens per person per day<input name="maxTokensPerUserPerDay" type="number" min="0" value="${g.budget?.maxTokensPerUserPerDay ?? 0}" /></label>
+        <label>Spend per day<input name="maxCostPerDay" type="number" min="0" step="0.01" value="${g.budget?.maxCostPerDay ?? 0}" /></label>
+        <p class="muted wide small">Budgets are counted in this process. Behind a load balancer each instance keeps its own total, so they bound a runaway loop rather than a bill.</p>
         <button class="btn" type="submit">Save agent</button>
       </form>`;
 
@@ -629,6 +654,25 @@
         },
         memory: { ...original.memory, windowTurns: Number(d.windowTurns) },
         aclTags: d.aclTags ? d.aclTags.split(',').map((t) => t.trim()).filter(Boolean) : [],
+        guardrails: {
+          // Spread first, so per-role tool allow-lists — which this form does not show, because a map of
+          // role to tools is not a form field — survive a save from here.
+          ...(original.guardrails || {}),
+          content: {
+            ...(original.guardrails?.content || {}),
+            maxInputCharacters: Number(d.maxInputCharacters) || 0,
+            blockedPhrases: d.blockedPhrases ? d.blockedPhrases.split(',').map((t) => t.trim()).filter(Boolean) : [],
+          },
+          pii: { ...(original.guardrails?.pii || {}), inputAction: d.piiInput, outputAction: d.piiOutput },
+          injection: { ...(original.guardrails?.injection || {}), enabled: d.injection === 'true' },
+          budget: {
+            ...(original.guardrails?.budget || {}),
+            maxTokensPerRun: Number(d.maxTokensPerRun) || 0,
+            maxTokensPerSession: Number(d.maxTokensPerSession) || 0,
+            maxTokensPerUserPerDay: Number(d.maxTokensPerUserPerDay) || 0,
+            maxCostPerDay: Number(d.maxCostPerDay) || 0,
+          },
+        },
       });
       toast('Agent saved.');
       setTimeout(() => location.reload(), 700);

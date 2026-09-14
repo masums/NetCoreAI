@@ -144,6 +144,11 @@ public static class NetCoreAIServiceCollectionExtensions
         services.TryAddSingleton<IUsageTracker, UsageTracker>();
         services.TryAddSingleton<ICostEstimator, CostEstimator>();
 
+        // Guardrails. The ledger is a singleton because a budget shared between two instances of it is no
+        // budget at all.
+        services.TryAddSingleton<NetCoreAI.Guardrails.IBudgetLedger, NetCoreAI.Guardrails.BudgetLedger>();
+        services.TryAddSingleton<NetCoreAI.Guardrails.IGuardrailService, NetCoreAI.Guardrails.GuardrailService>();
+
         services.TryAddSingleton<IConnectionManager, ConnectionManager>();
         services.TryAddSingleton<SettingsService>();
         services.TryAddSingleton<ISettingsService>(sp => sp.GetRequiredService<SettingsService>());

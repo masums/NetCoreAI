@@ -24,6 +24,12 @@ public sealed class NetCoreAIOptions
     public ProvidersOptions Providers { get; set; } = new();
 
     public TelemetryOptions Telemetry { get; set; } = new();
+
+    /// <summary>
+    /// Default rules for every agent that does not carry its own. Nothing is switched on here: a
+    /// guardrail that fires when nobody asked for it turns a working agent into a broken one.
+    /// </summary>
+    public NetCoreAI.Guardrails.GuardrailPolicy Guardrails { get; set; } = new();
 }
 
 public sealed class DashboardOptions

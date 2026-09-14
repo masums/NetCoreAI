@@ -34,6 +34,9 @@ public static class NetCoreAITelemetry
 
     public static readonly Histogram<double> ToolCallDuration = Meter.CreateHistogram<double>("netcoreai.tool.call.duration", unit: "ms");
 
+    /// <summary>Runs a guardrail refused. Worth an alert: a rule that fires constantly is usually wrong.</summary>
+    public static readonly Counter<long> GuardrailBlocks = Meter.CreateCounter<long>("netcoreai.guardrail.blocks", description: "Agent runs stopped by a guardrail, by agent.");
+
     /// <summary>
     /// Starts a span for one agent run, named and tagged to the GenAI semantic conventions.
     /// </summary>

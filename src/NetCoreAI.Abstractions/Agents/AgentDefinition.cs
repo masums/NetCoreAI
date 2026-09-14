@@ -84,6 +84,12 @@ public sealed record AgentDefinition
 
     public AgentLimits Limits { get; init; } = new();
 
+    /// <summary>
+    /// What this agent will not do: content rules, PII masking, injection heuristics, per-role tool
+    /// allow-lists and budgets. Null uses the host's default from <c>NetCoreAIOptions.Guardrails</c>.
+    /// </summary>
+    public NetCoreAI.Guardrails.GuardrailPolicy? Guardrails { get; init; }
+
     public AgentOutputMode OutputMode { get; init; } = AgentOutputMode.Text;
 
     /// <summary>JSON schema the answer must match, when <see cref="OutputMode"/> is JSON.</summary>
@@ -100,7 +106,7 @@ public sealed record AgentDefinition
 }
 
 /// <summary>One thing that happened during a run, in the order it happened.</summary>
-/// <param name="Kind">"retrieval", "tool", "generation" or "error".</param>
+/// <param name="Kind">"retrieval", "tool", "generation", "guardrail" or "error".</param>
 /// <param name="Name">What it acted on: a knowledge base id, a tool name, a model id.</param>
 public sealed record RunStep(string Kind, string Name)
 {
@@ -108,6 +114,9 @@ public sealed record RunStep(string Kind, string Name)
     public const string ToolKind = "tool";
     public const string GenerationKind = "generation";
     public const string ErrorKind = "error";
+
+    /// <summary>A rule that noticed something, whether or not it stopped the run.</summary>
+    public const string GuardrailKind = "guardrail";
 
     /// <summary>Arguments a tool was called with, as the model chose them.</summary>
     public string? Input { get; init; }
