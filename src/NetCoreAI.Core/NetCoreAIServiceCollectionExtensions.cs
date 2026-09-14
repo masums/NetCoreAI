@@ -115,6 +115,9 @@ public static class NetCoreAIServiceCollectionExtensions
         services.TryAddSingleton<IRagChatClientFactory, RagChatClientFactory>();
         services.TryAddSingleton<IKnowledgeClient, KnowledgeClient>();
 
+        // Tools: discovery only reads the route table, so it costs nothing until something asks.
+        services.TryAddSingleton<NetCoreAI.Tools.IEndpointDiscovery, NetCoreAI.Tools.EndpointDiscoveryService>();
+
         // Live traffic for the overview page, and per-call cost from connection pricing.
         services.TryAddSingleton<IUsageTracker, UsageTracker>();
         services.TryAddSingleton<ICostEstimator, CostEstimator>();

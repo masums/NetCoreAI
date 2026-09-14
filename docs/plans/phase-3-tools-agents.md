@@ -17,7 +17,7 @@ IAgentClient (in-process) / HttpAgentClient  ->  POST /api/agents/{id}/run | /ru
 Abstractions added: `ToolDefinition`, `IToolProvider`, `[AITool]`, `AgentDefinition`, `AgentRequest` / `AgentResponse` / `AgentEvent`, `IAgentClient`, `IAgentEventHandler`, `RunTrace`, `ApiKey`.
 
 ## Work packages
-### WP3.1 Endpoint discovery + ADR-0004
+### WP3.1 Endpoint discovery + ADR-0004 — discovery and the ADR done; OpenAPI import and manual definitions outstanding
 `EndpointDiscoveryService` reads `EndpointDataSource` (route pattern, methods, parameter metadata from ApiExplorer / endpoint metadata, authorization metadata, XML doc summaries via the `Microsoft.AspNetCore.OpenApi` document if registered). `GET /api/tools/discover`. Import external OpenAPI 3.x (`Microsoft.OpenApi.Readers`) → `OpenApi` kind tools. Manual definition (URL template + JSON schema).
 
 ### WP3.2 Tool definitions + registry

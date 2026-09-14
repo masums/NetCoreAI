@@ -119,10 +119,10 @@ Not a product phase, but required before Phase 1 can start.
 **Exit criterion:** G3 (expose an endpoint as a tool ≤ 5 min) and G4 (agent behaves identically via C# and HTTP) demonstrated.
 
 ### Tool Designer
-- [ ] Endpoint discovery (§7.6.1) from `EndpointDataSource` + OpenAPI doc: route, method, params, schemas, auth requirements, XML doc summaries
+- [x] Endpoint discovery (§7.6.1) from `EndpointDataSource` + OpenAPI doc: route, method, params, schemas, auth requirements, XML doc summaries — *summaries come from `.WithSummary()`/`.WithDescription()` and the opt-in attribute; reading them from the OpenAPI document waits for the import work in the same WP*
 - [ ] Import external OpenAPI 3.x specs
 - [ ] Manual tool definition (URL template + JSON schema)
-- [ ] Resolve Open Question #4 (in-process tool invocation strategy) before building invocation modes
+- [x] Resolve Open Question #4 (in-process tool invocation strategy) before building invocation modes — *ADR-0004: opt-in only, through the real pipeline with the caller's identity; HTTP loopback is the default*
 - [ ] Tool definition editor (§7.6.2): `AIFunction` metadata generation, name/description/param docs, hide/lock parameters (e.g. `tenantId` from claims), response field mapping + truncation, invocation mode (in-process vs HTTP), auth propagation, safety flags (read-only vs side-effecting + confirmation policy)
 - [ ] Code-defined tools (§7.6.3): `[AITool]` attribute, `services.AddAITool<T>()`, auto-discovery as read-only in designer
 - [ ] Tool testing panel (§7.6.4): manual params or model-generated from sample prompt, request/response/latency/errors
