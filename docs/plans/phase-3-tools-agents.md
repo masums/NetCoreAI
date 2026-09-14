@@ -26,7 +26,7 @@ Abstractions added: `ToolDefinition`, `IToolProvider`, `[AITool]`, `AgentDefinit
 ### WP3.3 Code-defined tools — done
 `[AITool]` on methods + `AddAITool<T>()`. No assembly-wide scan: registration is per type, so a tool exists because somebody registered it rather than because an attribute happened to be on something loaded. Registering a type with no marked method throws rather than registering nothing silently. wrapped with `AIFunctionFactory.Create`; shown read-only in the designer.
 
-### WP3.4 Tool testing panel
+### WP3.4 Tool testing panel — done, with the Tools page (designer, discovery list, OpenAPI import)
 `POST /api/tools/{id}/test` with manual args or model-generated args from a sample prompt (uses the default chat model); UI shows request, response, latency, errors.
 
 ### WP3.5 Agent definition + engine

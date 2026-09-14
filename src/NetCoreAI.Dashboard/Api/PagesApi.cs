@@ -17,6 +17,7 @@ internal static class PagesApi
         group.MapGet("/storage", (HttpContext http, PageRenderer r) => Page<StoragePage>(http, r, "storage")).ExcludeFromDescription();
         group.MapGet("/providers", (HttpContext http, PageRenderer r) => Page<ProvidersPage>(http, r, "providers")).ExcludeFromDescription();
         group.MapGet("/chat", (HttpContext http, PageRenderer r) => Page<ChatPage>(http, r, "chat")).ExcludeFromDescription();
+        group.MapGet("/tools", (HttpContext http, PageRenderer r) => Page<ToolsPage>(http, r, "tools")).ExcludeFromDescription();
         group.MapGet("/hardware", (HttpContext http, PageRenderer r) => Page<HardwarePage>(http, r, "hardware")).ExcludeFromDescription();
         group.MapGet("/settings", (HttpContext http, PageRenderer r) => Page<SettingsPage>(http, r, "settings")).ExcludeFromDescription();
     }

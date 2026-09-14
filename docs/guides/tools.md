@@ -94,6 +94,16 @@ A tool's response is cut to `MaxBytes` (16 KB by default) and says when it was c
 
 A failed call is reported to the model as text, not thrown: "that returned 503" is something it can act on or report, while an exception ends the turn and the person who asked sees nothing.
 
+## Trying one out
+
+The Tools page has a test panel per tool. Give the arguments yourself, or ask a question and let the model choose them — the arguments it picked are shown back, which is the part worth looking at: a tool called with the wrong ones has a description problem, and that is invisible otherwise.
+
+When the model decides *not* to call the tool, that is the answer rather than an error. Most tool problems are not "the call failed" but "the model did not think this tool applied", and its description is what it reads to decide.
+
+The model is offered a stand-in with the same name and schema, so a trial never fires the real tool inside the model's turn and then again for the result — a side-effecting tool must not do its work because somebody typed a sentence into a test box. The call happens once, after the arguments are known.
+
+The trial runs as **you**, not as the host, so a tool you could not use does not appear to work when you try it. Locked parameters are filled from your identity whatever the box says, and the panel names them so the result is not a surprise.
+
 ## Endpoints
 
 | Method | Route | Purpose |
@@ -103,3 +113,4 @@ A failed call is reported to the model as text, not thrown: "that returned 503" 
 | GET/POST/PUT/DELETE | `/api/tools`, `/api/tools/{id}` | Manage saved tools |
 | POST | `/api/tools/from-endpoint/{endpointId}` | Build a tool from a discovered endpoint |
 | POST | `/api/tools/import-openapi` | Import an OpenAPI 3.x document |
+| POST | `/api/tools/{id}/test` | Run one trial call, with given or model-chosen arguments |

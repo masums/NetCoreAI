@@ -49,6 +49,21 @@ public sealed class FakeOpenAIServer : IAsyncDisposable
             data = new[] { new { id = "fake-chat", @object = "model", created = 0, owned_by = "test" }, new { id = "fake-embed", @object = "model", created = 0, owned_by = "test" } },
         }));
 
+        // A fault in the double must not present as a dropped connection: the client retries, reports
+        // "the response ended prematurely", and the actual mistake — here, in test code — stays invisible.
+        app.Use(async (ctx, next) =>
+        {
+            try
+            {
+                await next();
+            }
+            catch (Exception ex) when (!ctx.Response.HasStarted)
+            {
+                ctx.Response.StatusCode = 500;
+                await ctx.Response.WriteAsJsonAsync(new { error = new { message = $"FakeOpenAIServer failed: {ex}" } });
+            }
+        });
+
         app.MapPost("/v1/chat/completions", async (HttpContext ctx) =>
         {
             var body = await JsonNode.ParseAsync(ctx.Request.Body);
@@ -56,6 +71,51 @@ public sealed class FakeOpenAIServer : IAsyncDisposable
             var last = body!["messages"]!.AsArray().Last()!["content"]!.ToString();
             var reply = $"echo: {last}";
             var model = body["model"]!.ToString();
+
+            // Tool calls, without pretending the fake is intelligent: a prompt may carry the arguments it
+            // wants the "model" to choose, as `args:{...}`. A test that wants a refusal simply omits them.
+            if (body["tools"] is JsonArray { Count: > 0 } offered && last.Contains("args:", StringComparison.Ordinal))
+            {
+                var arguments = last[(last.IndexOf("args:", StringComparison.Ordinal) + 5)..].Trim();
+
+                // The wire shape for a tool has moved around: older clients nest it under "function",
+                // newer ones flatten it. Read either, rather than failing halfway through a response.
+                var first = offered[0]!;
+                var called = (first["function"]?["name"] ?? first["name"])?.ToString() ?? "unknown";
+
+                // Serialized before anything is written, so a mistake in this double surfaces as a 500 with
+                // the reason rather than as a dropped connection the client reports as "response ended".
+                var toolPayload = JsonSerializer.Serialize(new
+                {
+                    id = "c1",
+                    @object = "chat.completion",
+                    created = 0,
+                    model,
+                    choices = new[]
+                    {
+                        new
+                        {
+                            index = 0,
+                            message = new
+                            {
+                                role = "assistant",
+                                content = (string?)null,
+                                tool_calls = new[]
+                                {
+                                    new { id = "call_1", type = "function", function = new { name = called, arguments } },
+                                },
+                            },
+                            finish_reason = "tool_calls",
+                        },
+                    },
+                    usage = new { prompt_tokens = 4, completion_tokens = 2, total_tokens = 6 },
+                });
+
+                ctx.Response.ContentType = "application/json";
+                await ctx.Response.WriteAsync(toolPayload);
+                return;
+            }
+
             if (body["stream"]?.GetValue<bool>() == true)
             {
                 ctx.Response.ContentType = "text/event-stream";

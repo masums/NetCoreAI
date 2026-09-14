@@ -123,9 +123,9 @@ Not a product phase, but required before Phase 1 can start.
 - [x] Import external OpenAPI 3.x specs — *JSON documents; a YAML one is refused with a message saying to convert it, rather than pulling a YAML parser into the package every host references*
 - [x] Manual tool definition (URL template + JSON schema) — *`POST /api/tools` takes a definition directly; the designer UI for it lands with WP3.2*
 - [x] Resolve Open Question #4 (in-process tool invocation strategy) before building invocation modes — *ADR-0004: opt-in only, through the real pipeline with the caller's identity; HTTP loopback is the default*
-- [x] Tool definition editor (§7.6.2): `AIFunction` metadata generation, name/description/param docs, hide/lock parameters (e.g. `tenantId` from claims), response field mapping + truncation, invocation mode (in-process vs HTTP), auth propagation, safety flags (read-only vs side-effecting + confirmation policy) — *registry, binding and both invocation modes done; the designer UI lands with the testing panel*
+- [x] Tool definition editor (§7.6.2): `AIFunction` metadata generation, name/description/param docs, hide/lock parameters (e.g. `tenantId` from claims), response field mapping + truncation, invocation mode (in-process vs HTTP), auth propagation, safety flags (read-only vs side-effecting + confirmation policy) 
 - [x] Code-defined tools (§7.6.3): `[AITool]` attribute, `services.AddAITool<T>()`, auto-discovery as read-only in designer — *registered per type rather than scanned across every loaded assembly: a tool exists because someone registered it, not because a name matched*
-- [ ] Tool testing panel (§7.6.4): manual params or model-generated from sample prompt, request/response/latency/errors
+- [x] Tool testing panel (§7.6.4): manual params or model-generated from sample prompt, request/response/latency/errors — *the model is offered a stand-in, so a trial never fires a side-effecting tool twice*
 
 ### Agent Builder
 - [ ] Agent definition (§7.7.1): name, description, avatar, model + fallback, templated system prompt, params, tools, KBs with retrieval settings, memory policy, output mode, guardrails, access policy
@@ -141,7 +141,7 @@ Not a product phase, but required before Phase 1 can start.
 - [ ] OpenAPI document for the NetCoreAI API itself
 - [x] Identity/security invariant: tool invocation always runs under caller identity unless explicitly configured; model can never set identity-bearing params — *two defences, both mutation-tested: a locked parameter is absent from the schema, and the binder ignores one the model sends anyway*
 - [ ] OpenTelemetry coverage extended to tool calls and agent runs (GenAI semantic conventions)
-- [ ] `GET/POST/PUT/DELETE /api/tools`, `/api/tools/discover`, `/api/tools/import-openapi`, `/api/tools/{id}/test`
+- [x] `GET/POST/PUT/DELETE /api/tools`, `/api/tools/discover`, `/api/tools/import-openapi`, `/api/tools/{id}/test`
 - [ ] `GET/POST/PUT/DELETE /api/agents`, `/api/agents/{id}/run(/stream)`, `/api/agents/{id}/runs`
 
 ---

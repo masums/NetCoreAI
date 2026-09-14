@@ -23,9 +23,11 @@ internal static class ToolsApi
 
             // Each row says whether a tool already exists for it, so the designer offers "edit" rather than
             // a second "create" that would fail on the duplicate name.
+            // Grouped, not keyed: one endpoint may legitimately have several tools built from it.
             var byEndpoint = existing
                 .Where(t => t.Kind == ToolKind.Endpoint && t.Route is not null)
-                .ToDictionary(t => DiscoveredEndpoint.IdFor(t.Method, t.Route!), t => t.Id, StringComparer.Ordinal);
+                .GroupBy(t => DiscoveredEndpoint.IdFor(t.Method, t.Route!), StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.First().Id, StringComparer.Ordinal);
 
             return Results.Ok(new
             {
@@ -54,6 +56,20 @@ internal static class ToolsApi
         tools.MapPost("/from-endpoint/{endpointId}", async (string endpointId, IToolService service, CancellationToken ct) =>
             Results.Ok(await service.CreateFromEndpointAsync(endpointId, ct))).WithName("NetCoreAI.Tools.FromEndpoint");
 
+        tools.MapPost("/{id}/test", async (string id, TestRequest request, IToolTester tester, HttpContext http, CancellationToken ct) =>
+        {
+            // The trial call runs as whoever is at the dashboard, not as the host: a tool that a caller
+            // could not use must not appear to work when it is tried.
+            var context = new ToolCallContext
+            {
+                User = http.User,
+                BaseAddress = new Uri($"{http.Request.Scheme}://{http.Request.Host}"),
+                AuthorizationHeader = http.Request.Headers.Authorization.ToString() is { Length: > 0 } a ? a : null,
+            };
+
+            return Results.Ok(await tester.TestAsync(id, request.Arguments, request.Prompt, context, ct));
+        }).WithName("NetCoreAI.Tools.Test");
+
         tools.MapPost("/import-openapi", async (ImportRequest request, IToolService service, CancellationToken ct) =>
         {
             var imported = await service.ImportOpenApiAsync(request.Document, request.BaseUrl, ct);
@@ -76,6 +92,15 @@ internal static class ToolsApi
             : http.User.Identity?.IsAuthenticated == true
                 ? http.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? http.User.Identity.Name ?? "an authenticated dashboard user"
                 : "an anonymous dashboard user";
+
+    /// <summary>A trial call: either the arguments to use, or a prompt to let the model choose them.</summary>
+    public sealed record TestRequest
+    {
+        public IReadOnlyDictionary<string, object?>? Arguments { get; init; }
+
+        /// <summary>A sample question. When given, the model picks the arguments and they are shown back.</summary>
+        public string? Prompt { get; init; }
+    }
 
     /// <summary>An OpenAPI document to import, with the base URL its operations should be called against.</summary>
     public sealed record ImportRequest(string Document)

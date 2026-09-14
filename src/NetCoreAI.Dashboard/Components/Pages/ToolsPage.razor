@@ -1,0 +1,189 @@
+@using NetCoreAI.Tools
+@inject IToolService Tools
+@inject IEndpointDiscovery Discovery
+
+<header class="page-header">
+    <h1>Tools</h1>
+    <p class="muted">Things a model can do rather than only say. A tool is one of your endpoints, a method in your code, or an operation on another service — and it always runs as the person who caused it to run.</p>
+</header>
+
+<section class="card">
+    <div class="toolbar">
+        <h2>Tools</h2>
+        <span class="muted">@_tools.Count tool(s)</span>
+    </div>
+
+    @if (_tools.Count == 0)
+    {
+        <p class="empty">No tools yet. Pick one of your endpoints below, import an OpenAPI document, or mark a method <span class="mono">[AITool]</span> in your own code.</p>
+    }
+    else
+    {
+        <table id="tools-table">
+            <thead><tr><th>Name</th><th>Kind</th><th>Target</th><th>Safety</th><th>Runs</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var tool in _tools)
+                {
+                    <tr data-id="@tool.Id">
+                        <td>
+                            <strong>@tool.Name</strong>
+                            @if (!tool.Enabled)
+                            {
+                                <span class="tag">off</span>
+                            }
+                            <br /><small class="muted">@(tool.Description ?? "No description — the model reads this to decide when to use the tool.")</small>
+                        </td>
+                        <td>@tool.Kind</td>
+                        <td class="mono small">@(tool.Kind == ToolKind.Code ? tool.CodeTarget : $"{tool.Method} {tool.Route}")</td>
+                        <td>
+                            @if (tool.Safety == ToolSafety.SideEffecting)
+                            {
+                                <span class="tag warn">changes data</span>
+                                @if (tool.Confirmation != ConfirmationPolicy.Auto)
+                                {
+                                    <span class="tag">@tool.Confirmation</span>
+                                }
+                            }
+                            else
+                            {
+                                <span class="muted small">read-only</span>
+                            }
+                        </td>
+                        <td>
+                            <span class="small">@Mode(tool)</span>
+                            @if (tool.InvocationMode == ToolInvocationMode.InProcess && tool.InProcessAllowedBy is { Length: > 0 } who)
+                            {
+                                <br />
+                                <small class="muted">enabled by @who</small>
+                            }
+                        </td>
+                        <td class="actions">
+                            <button class="btn small" data-action="tool-test" data-id="@tool.Id" data-name="@tool.Name">Test…</button>
+                            @if (tool.Kind == ToolKind.Code)
+                            {
+                                <span class="muted small" title="Defined in code with [AITool]">in code</span>
+                            }
+                            else
+                            {
+                                <button class="btn small" data-action="tool-edit" data-id="@tool.Id">Edit…</button>
+                                <button class="btn small danger" data-action="tool-delete" data-id="@tool.Id" data-name="@tool.Name">Delete</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+<section class="card" id="tool-detail" hidden>
+    <div class="toolbar">
+        <h2 id="tool-detail-title">Tool</h2>
+        <button class="btn small" data-action="tool-close">Close</button>
+    </div>
+    <div id="tool-detail-body"></div>
+</section>
+
+<section class="card">
+    <div class="toolbar">
+        <h2>Your endpoints</h2>
+        <span class="muted">@_endpoints.Count route(s), @_endpoints.Count(e => e.OptedIn) marked</span>
+    </div>
+    <p class="muted small">
+        Everything this host routes. Nothing here is reachable by a model until you make a tool of it.
+        Marking an endpoint <span class="mono">.WithAITool()</span> in code says it is meant to be one, and lets it run in-process — without a socket, with the caller's identity, and with its own authorization still enforced.
+    </p>
+
+    <table id="endpoints-table">
+        <thead><tr><th>Endpoint</th><th>Parameters</th><th>Who can call it</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var endpoint in _endpoints)
+            {
+                <tr>
+                    <td>
+                        <span class="mono">@endpoint.Method @endpoint.Route</span>
+                        @if (endpoint.OptedIn)
+                        {
+                            <span class="tag">marked</span>
+                        }
+                        @if (endpoint.Summary is { Length: > 0 } summary)
+                        {
+                            <br /><small class="muted">@summary</small>
+                        }
+                    </td>
+                    <td class="small mono">@(endpoint.Parameters.Count == 0 ? "–" : string.Join(", ", endpoint.Parameters.Select(p => p.Name)))</td>
+                    <td class="small">
+                        @if (endpoint.AllowsAnonymous)
+                        {
+                            <span class="muted">anyone</span>
+                        }
+                        else if (endpoint.RequiredPolicies.Count > 0)
+                        {
+                            @string.Join(", ", endpoint.RequiredPolicies)
+                        }
+                        else
+                        {
+                            <span class="muted">no policy declared</span>
+                        }
+                    </td>
+                    <td class="actions">
+                        @if (endpoint.Unsuitable is { Length: > 0 } reason)
+                        {
+                            <span class="muted small" title="@reason">cannot be a tool</span>
+                        }
+                        else if (endpoint.ExistingToolId is { Length: > 0 } existing)
+                        {
+                            <button class="btn small" data-action="tool-edit" data-id="@existing">Edit tool…</button>
+                        }
+                        else
+                        {
+                            <button class="btn small" data-action="tool-from-endpoint" data-id="@endpoint.Id">Make a tool</button>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</section>
+
+<section class="card">
+    <h2>Import an OpenAPI document</h2>
+    <p class="muted small">One tool per operation. Re-importing an updated document updates what it made rather than duplicating it. JSON only — convert a YAML spec first. An imported tool never carries your callers' credentials; give it its own.</p>
+    <form id="openapi-form" class="grid-form">
+        <label class="wide">Base URL (overrides the document's own, which is often a placeholder)<input name="baseUrl" placeholder="https://shipping.example.com/v1" /></label>
+        <label class="wide">Document<textarea name="document" rows="6" placeholder='{ "openapi": "3.0.1", ... }' required></textarea></label>
+        <button class="btn" type="submit">Import</button>
+    </form>
+</section>
+
+@code {
+    [Parameter] public DashboardContext Ctx { get; set; } = default!;
+
+    private IReadOnlyList<ToolDefinition> _tools = [];
+    private IReadOnlyList<DiscoveredEndpoint> _endpoints = [];
+
+    private static string Mode(ToolDefinition tool) => tool.Kind switch
+    {
+        ToolKind.Code => "in this process",
+        _ => tool.InvocationMode switch
+        {
+            ToolInvocationMode.InProcess => "in-process",
+            ToolInvocationMode.HttpExternal => "HTTP, elsewhere",
+            _ => "HTTP, this host",
+        },
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _tools = await Tools.ListAsync();
+
+        // Grouped, not keyed: one endpoint may legitimately have several tools — different bindings,
+        // different response mapping, different safety — and assuming otherwise threw and broke the page.
+        var existing = _tools
+            .Where(t => t.Kind == ToolKind.Endpoint && t.Route is not null)
+            .GroupBy(t => DiscoveredEndpoint.IdFor(t.Method, t.Route!), StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First().Id, StringComparer.Ordinal);
+
+        _endpoints = [.. Discovery.Discover().Select(e => e with { ExistingToolId = existing.GetValueOrDefault(e.Id) })];
+    }
+}

@@ -90,6 +90,11 @@
       case 'kb-close': { const d = $('#kb-detail'); if (d) d.hidden = true; return; }
       case 'kb-delete-source': return confirm('Remove this source and the documents it brought in?') && guarded(async () => { await call('DELETE', `kb/${encodeURIComponent(btn.dataset.kb)}/sources/${encodeURIComponent(id)}`); reload(); }, btn);
       case 'kb-delete-document': return guarded(async () => { await call('DELETE', `kb/${encodeURIComponent(btn.dataset.kb)}/documents/${encodeURIComponent(id)}`); openKnowledgeBase(btn.dataset.kb); }, btn);
+      case 'tool-edit': return guarded(() => openTool(id), btn);
+      case 'tool-test': return guarded(() => openToolTest(id, name), btn);
+      case 'tool-close': { const t = $('#tool-detail'); if (t) t.hidden = true; return; }
+      case 'tool-delete': return confirm(`Delete the tool "${name}"? Agents naming it will stop finding it.`) && guarded(async () => { await call('DELETE', `tools/${encodeURIComponent(id)}`); reload(); }, btn);
+      case 'tool-from-endpoint': return guarded(async () => { const t = await call('POST', `tools/from-endpoint/${encodeURIComponent(id)}`, null); toast(`Created ${t.name}.`); setTimeout(reload, 700); }, btn);
       case 'job-cancel': return guarded(async () => { await call('POST', `jobs/${encodeURIComponent(id)}/cancel`); reload(); }, btn);
       case 'job-retry': return guarded(async () => { await call('POST', `jobs/${encodeURIComponent(id)}/retry`); reload(); }, btn);
       case 'edit-model': return guarded(() => openModelEditor(id), btn);
@@ -269,6 +274,162 @@
   // Select-all for the reclaimable files list.
   $('#orphan-all')?.addEventListener('change', (ev) => {
     $$('.orphan').forEach((c) => { c.checked = ev.target.checked; });
+  });
+
+  // ---------- tools ----------
+  const toolDetail = $('#tool-detail');
+
+  async function openTool(id) {
+    const tool = await call('GET', `tools/${encodeURIComponent(id)}`);
+    $('#tool-detail-title').textContent = tool.name;
+    const params = tool.parameters || [];
+
+    // Locked parameters are listed with everything else, because "which of these can the model set?" is
+    // the question this page exists to answer, and hiding them would answer it by omission.
+    $('#tool-detail-body').innerHTML = `
+      <form id="tool-form" class="grid-form" data-id="${esc(tool.id)}">
+        <label>Name<input name="name" value="${esc(tool.name)}" required /></label>
+        <label>Enabled<select name="enabled">
+          <option value="true"${tool.enabled ? ' selected' : ''}>yes</option>
+          <option value="false"${tool.enabled ? '' : ' selected'}>no</option></select></label>
+        <label class="wide">Description — the model reads this to decide when to use the tool
+          <textarea name="description" rows="2">${esc(tool.description || '')}</textarea></label>
+        <label>Safety<select name="safety">
+          <option value="ReadOnly"${tool.safety === 'ReadOnly' ? ' selected' : ''}>reads only</option>
+          <option value="SideEffecting"${tool.safety === 'SideEffecting' ? ' selected' : ''}>changes data</option></select></label>
+        <label>Confirmation<select name="confirmation">
+          <option value="Auto"${tool.confirmation === 'Auto' ? ' selected' : ''}>run without asking</option>
+          <option value="AskUser"${tool.confirmation === 'AskUser' ? ' selected' : ''}>ask the caller first</option>
+          <option value="AdminOnly"${tool.confirmation === 'AdminOnly' ? ' selected' : ''}>administrators only</option></select></label>
+        <label>Runs<select name="invocationMode">
+          <option value="HttpLoopback"${tool.invocationMode === 'HttpLoopback' ? ' selected' : ''}>HTTP, this host</option>
+          <option value="InProcess"${tool.invocationMode === 'InProcess' ? ' selected' : ''}>in-process</option>
+          <option value="HttpExternal"${tool.invocationMode === 'HttpExternal' ? ' selected' : ''}>HTTP, elsewhere</option></select></label>
+        <label>Timeout (seconds)<input name="timeoutSeconds" type="number" min="1" max="600" value="${tool.timeoutSeconds}" /></label>
+        <label>Response: return only this path<input name="selectPath" value="${esc(tool.response?.selectPath || '')}" placeholder="data.total" /></label>
+        <label>Response: maximum characters<input name="maxBytes" type="number" min="256" step="256" value="${tool.response?.maxBytes ?? 16384}" /></label>
+        <label class="wide"><small class="muted">In-process is faster and needs no address, but a synthetic request has no client IP or TLS details. If this endpoint relies on middleware that reads those, leave it on HTTP.</small></label>
+
+        <h3 class="wide">Parameters</h3>
+        <div class="wide" id="tool-params">
+          ${params.length ? params.map((p, i) => paramRow(p, i)).join('') : '<p class="empty">This tool takes no parameters.</p>'}
+        </div>
+        <button class="btn" type="submit">Save tool</button>
+      </form>`;
+
+    toolDetail.hidden = false;
+    toolDetail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    $('#tool-form').addEventListener('submit', (ev) => { ev.preventDefault(); saveTool(tool); });
+  }
+
+  function paramRow(p, i) {
+    const binding = p.binding || 'Model';
+    const label = { Model: 'the model', Claim: 'a claim', RequestMetadata: 'request metadata', Static: 'a fixed value' };
+    return `<div class="param-row" data-i="${i}">
+      <span class="mono">${esc(p.name)}</span>
+      <span class="muted small">${esc(p.type)} in ${esc(p.location)}${p.required ? ', required' : ''}</span>
+      <label class="small">Value from
+        <select data-param="binding">
+          ${Object.keys(label).map((b) => `<option value="${b}"${b === binding ? ' selected' : ''}>${label[b]}</option>`).join('')}
+        </select></label>
+      <label class="small">Source<input data-param="bindingSource" value="${esc(p.bindingSource || '')}" placeholder="tenant"${binding === 'Model' ? ' disabled' : ''} /></label>
+      <label class="small wide">Description shown to the model<input data-param="description" value="${esc(p.description || '')}" /></label>
+    </div>`;
+  }
+
+  // Only a model-supplied parameter has nothing to bind from; the rest need a source, and the server
+  // refuses one without it rather than sending null for something like a tenant id.
+  document.addEventListener('change', (ev) => {
+    if (ev.target.matches('[data-param="binding"]')) {
+      const source = ev.target.closest('.param-row').querySelector('[data-param="bindingSource"]');
+      source.disabled = ev.target.value === 'Model';
+      if (source.disabled) source.value = '';
+    }
+  });
+
+  function saveTool(original) {
+    const form = $('#tool-form');
+    const d = formData(form);
+    const parameters = $$('.param-row', form).map((row, i) => ({
+      ...original.parameters[i],
+      binding: row.querySelector('[data-param="binding"]').value,
+      bindingSource: row.querySelector('[data-param="bindingSource"]').value || null,
+      description: row.querySelector('[data-param="description"]').value || null,
+    }));
+
+    guarded(async () => {
+      // The whole record goes back with the edited fields replaced: a PUT that dropped the approval flags
+      // would quietly re-open a question an administrator has already answered.
+      await call('PUT', `tools/${encodeURIComponent(original.id)}`, {
+        ...original,
+        name: d.name,
+        description: d.description || null,
+        enabled: d.enabled === 'true',
+        safety: d.safety,
+        confirmation: d.confirmation,
+        invocationMode: d.invocationMode,
+        timeoutSeconds: Number(d.timeoutSeconds),
+        response: { ...original.response, selectPath: d.selectPath || null, maxBytes: Number(d.maxBytes) },
+        parameters,
+      });
+      toast('Tool saved.');
+      setTimeout(() => location.reload(), 700);
+    });
+  }
+
+  async function openToolTest(id, name) {
+    const tool = await call('GET', `tools/${encodeURIComponent(id)}`);
+
+    // Named here because the result below can look wrong without it: a locked parameter is filled by the
+    // host, so what the endpoint receives is not what was typed into this box.
+    const locked = (tool.parameters || []).filter((p) => (p.binding || 'Model') !== 'Model');
+
+    $('#tool-detail-title').textContent = `Test ${name}`;
+    $('#tool-detail-body').innerHTML = `
+      <form id="tool-test-form" class="grid-form" data-id="${esc(id)}">
+        <label class="wide">Ask a question, and the model picks the arguments
+          <input name="prompt" placeholder="What is order A-1?" /></label>
+        <label class="wide">…or give the arguments yourself, as JSON
+          <textarea name="arguments" rows="3" placeholder='{ "id": "A-1" }'></textarea></label>
+        ${locked.length ? `<p class="muted small wide">${locked.map((p) => esc(p.name)).join(', ')} ${locked.length === 1 ? 'is' : 'are'} filled in by the host from your own identity, whatever is typed here or chosen by the model. The trial call runs as you.</p>` : ''}
+        <button class="btn" type="submit">Run it</button>
+      </form>
+      <div id="tool-test-result"></div>`;
+
+    toolDetail.hidden = false;
+    toolDetail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    $('#tool-test-form').addEventListener('submit', (ev) => { ev.preventDefault(); runToolTest(id); });
+  }
+
+  function runToolTest(id) {
+    const d = formData($('#tool-test-form'));
+    let args = null;
+    if (d.arguments && d.arguments.trim()) {
+      try { args = JSON.parse(d.arguments); } catch { toast('The arguments are not valid JSON.', true); return; }
+    }
+
+    const box = $('#tool-test-result');
+    box.innerHTML = '<p class="muted">Running…</p>';
+    guarded(async () => {
+      const r = await call('POST', `tools/${encodeURIComponent(id)}/test`, { prompt: d.prompt || null, arguments: args });
+      const used = Object.keys(r.arguments || {}).length
+        ? `<h3>Arguments the tool was called with</h3><pre class="small">${esc(JSON.stringify(r.arguments, null, 2))}</pre>` : '';
+      box.innerHTML = `
+        ${r.error ? `<p class="muted">${esc(r.error)}</p>` : ''}
+        ${r.modelSaid ? `<h3>What the model said</h3><p class="muted small">${esc(r.modelSaid)}</p>` : ''}
+        ${used}
+        ${r.success ? `<h3>Result <span class="muted small">${r.elapsedMs} ms</span></h3><pre class="small">${esc(r.output || '(empty)')}</pre>` : ''}`;
+    });
+  }
+
+  $('#openapi-form')?.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const d = formData(ev.target);
+    guarded(async () => {
+      const r = await call('POST', 'tools/import-openapi', { document: d.document, baseUrl: d.baseUrl || null });
+      toast(`Imported ${r.imported} operation(s).`);
+      setTimeout(() => location.reload(), 900);
+    });
   });
 
   // ---------- knowledge ----------

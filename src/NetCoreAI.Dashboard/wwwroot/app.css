@@ -90,6 +90,10 @@ td.small,.small{font-size:12px}
 .citations summary{cursor:pointer;font-size:12px;color:var(--muted)}
 .citation{margin:8px 0;font-size:12px}
 .citation strong{font-weight:600}
+/* One parameter per row: name, where it rides, and where its value comes from, read left to right. */
+.param-row{display:grid;grid-template-columns:minmax(120px,1fr) minmax(140px,1fr) minmax(160px,1fr) minmax(160px,1fr);gap:8px;align-items:end;padding:8px 0;border-top:1px solid var(--border)}
+.param-row .wide{grid-column:1/-1}
+.param-row label{display:flex;flex-direction:column;gap:2px}
 .kb-settings{margin:8px 0 16px}
 .kb-settings summary{cursor:pointer;font-weight:600}
 .kb-settings .grid-form{margin-top:10px}
