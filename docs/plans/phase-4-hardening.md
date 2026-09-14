@@ -13,7 +13,7 @@
 3. **Retrieval quality** — BM25 index (SQLite FTS5) + reciprocal rank fusion; cross-encoder re-ranker via ONNX (`bge-reranker-base`); KB evaluation (QA sets, hit rate, LLM-judge faithfulness).
 4. **Guardrails** — input/output rules (regex, blocklist, max length), PII masking, prompt-injection heuristics, per-role tool allow-list, token/cost budgets per session/day; implemented as chat-client middleware + `IAgentEventHandler`.
 5. **Versioning & publishing** — agents (draft/published/rollback/changelog), tools (versions, deprecation warnings), JSON bundle export/import.
-6. **Built-in tools** — knowledge search, date/time, calculator, allow-listed HTTP fetch, read-only SQL query with row limits.
+6. **Built-in tools** — done. Knowledge search, date/time, calculator, allow-listed HTTP fetch, read-only SQL query with row limits. Fetch and SQL are unregistered until configured; fetch takes an exact-host allow-list, refuses address literals and does not follow redirects; SQL refuses anything but a single SELECT and caps rows.
 7. **Security & tenancy** — audit log (all CRUD + runs), multi-tenant mode (`ITenantResolver`, per-tenant models/KBs/agents/quotas/storage paths), data-residency switch.
 8. **Observability** — usage analytics (tokens/cost per agent/model/user/connection), run history browser with trace export, alerts via host `IEmailSender`/webhook.
 9. **Compatibility & embedding** — OpenAI-compatible `/v1/chat/completions` + `/v1/embeddings` (`model` = alias or agent id), embeddable chat widget (Razor component + JS snippet, CSS variables).

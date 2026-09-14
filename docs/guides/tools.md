@@ -162,3 +162,29 @@ That path is exercised end to end by `Phase3AcceptanceTests`, against a real mod
 Run it with `OPENROUTER_FREE_KEY` set (and optionally `OPENROUTER_FREE_MODEL`); without a key the tests skip, so the suite still runs offline and in CI without secrets. A provider rate-limit is skipped rather than failed — a free tier refusing a burst is a fact about the tier, not a defect here, and a suite that goes red for it teaches everyone to ignore red.
 
 **What has not been measured:** a stopwatch run on a clean machine, from `dotnet add package` to a working tool, by someone who has not seen this before. The mechanics above are proven; the five-minute claim is not, and saying otherwise would be guessing at the part that actually matters — how long it takes someone to find out that `.WithAITool()` is the thing to type.
+
+## The tools NetCoreAI ships with
+
+```csharp
+builder.Services.AddNetCoreAI().AddBuiltInTools(o =>
+{
+    o.FetchAllowedHosts.Add("docs.example.com");
+    o.Sql = new SqlToolConnection("Npgsql", reportingConnectionString) { AllowedTables = ["orders", "customers"] };
+});
+```
+
+| Tool | What it does | Default |
+|---|---|---|
+| `current_date_time` | Today's date in UTC, so a model stops guessing it from its training data | on |
+| `calculate` | Arithmetic, which language models are unreliable at | on |
+| `search_documents` | Searches your knowledge bases, filtered by the caller's access tags | on |
+| `fetch_url` | Reads a page from an approved site | **only with an allow-list** |
+| `query_database` | Runs a read-only SELECT | **only with a connection** |
+
+The last two are off until you say where they may point, and they are *absent* rather than present-and-refusing — a model told about a tool will try it, spend a call, and read the refusal as a fault.
+
+**`fetch_url`** takes an allow-list of exact host names, never a block-list. A model that can fetch any URL is a request-forgery hole with a friendly name: it sits inside your network, and the addresses worth reaching from there are exactly the ones a block-list forgets — the link-local metadata service that hands out cloud credentials, an admin panel bound to localhost, anything on a private range. Address literals are refused whatever the list says, since a list of names tells you nothing about what an IP currently points at, and redirects are not followed, because a redirect is a second URL the allow-list was never asked about.
+
+**`query_database`** has three limits, because any one alone is thin: the statement must be a single SELECT, the rows are capped, and you should point it at an account that can only read. The string check is the weakest of the three — it refuses a second statement smuggled after a semicolon, and writes hidden inside a SELECT — but a permission the account does not have is what holds when a check is wrong. `AllowedTables` is worth setting even then: "read-only" and "may read the password hashes" are not mutually exclusive.
+
+**`calculate`** parses the expression itself rather than evaluating it. Its input comes from a model, which in practice means from whoever is talking to the model, and an expression evaluator that can reach a type system is a way to run code by asking nicely.

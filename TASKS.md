@@ -156,7 +156,7 @@ Not a product phase, but required before Phase 1 can start.
 - [ ] Guardrails (§7.7.3): input/output content rules, PII masking, prompt-injection heuristics, per-role tool allow-list, token/cost budgets
 - [ ] Agent versioning & publishing (§7.7.5): draft → published, rollback, changelog, environment export/import
 - [ ] Tool groups & versioning (§7.6.5): toolsets, versioned definitions, deprecation warnings
-- [ ] Built-in tools (§7.6.6): knowledge search, date/time, calculator, allow-listed HTTP fetch, read-only SQL query with row limits
+- [x] Built-in tools (§7.6.6): knowledge search, date/time, calculator, allow-listed HTTP fetch, read-only SQL query with row limits — *the two with outside reach are not registered at all until configured, rather than present and refusing*
 - [ ] Audit log (who created/changed/deleted models/tools/agents/KBs, who ran what)
 - [ ] Multi-tenant mode: tenant resolver, per-tenant models/KBs/agents/quotas/storage paths
 - [ ] Data residency switch: block remote providers/outbound calls except allow-listed mirrors
