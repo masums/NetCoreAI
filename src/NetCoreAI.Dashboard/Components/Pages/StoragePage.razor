@@ -1,0 +1,117 @@
+@using NetCoreAI.Storage
+@inject IStorageService Storage
+
+<header class="page-header">
+    <h1>Storage</h1>
+    <p class="muted">What the data directory holds, per model, and what can be reclaimed. Model weights are the bulk of it: a 7B model at Q4 is roughly 4.5 GB.</p>
+</header>
+
+<section class="card">
+    <div class="toolbar">
+        <h2>Data directory</h2>
+        <span class="muted mono">@_usage.DataDirectory</span>
+    </div>
+
+    @if (_usage.OverQuota)
+    {
+        <p class="banner warn">The data directory now uses @Fmt.Bytes(_usage.TotalBytes), past the warning threshold of @Fmt.Bytes(_usage.QuotaWarningBytes). Remove models you no longer need, or raise <code>Models.StorageQuotaWarningBytes</code> in settings.</p>
+    }
+    @if (_usage.LowDisk)
+    {
+        <p class="banner warn">Only @Fmt.Bytes(_usage.FreeDiskBytes) is free on this volume. Downloads will fail once it runs out; loading a model needs RAM rather than disk, but an interrupted download leaves partial files behind.</p>
+    }
+
+    <dl class="stats">
+        <div><dt>Total</dt><dd>@Fmt.Bytes(_usage.TotalBytes)</dd></div>
+        <div><dt>Models</dt><dd>@Fmt.Bytes(_usage.ModelBytes)</dd></div>
+        <div><dt>Reclaimable</dt><dd>@Fmt.Bytes(_usage.OrphanBytes)</dd></div>
+        <div><dt>Free on disk</dt><dd>@(_usage.FreeDiskBytes is null ? "unknown" : Fmt.Bytes(_usage.FreeDiskBytes))</dd></div>
+    </dl>
+</section>
+
+<section class="card">
+    <div class="toolbar">
+        <h2>Models on disk</h2>
+        <span class="muted">@_usage.Models.Count local model(s)</span>
+    </div>
+    @if (_usage.Models.Count == 0)
+    {
+        <p class="empty">No local models yet. Download one from the <a href="@Ctx.Url("hub")">Model Hub</a>, or import a file the server can read.</p>
+    }
+    else
+    {
+        <table id="storage-models">
+            <thead><tr><th>Model</th><th>Path</th><th>Size</th><th>Last used</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var m in _usage.Models)
+                {
+                    <tr>
+                        <td>
+                            <strong>@m.Name</strong><br />
+                            <span class="muted mono">@m.ModelId</span>
+                            @if (m.Status == ModelStatus.Loaded) { <span class="tag">loaded</span> }
+                        </td>
+                        <td class="mono small">
+                            @(m.Path ?? "–")
+                            @if (!m.Exists)
+                            {
+                                <br />
+                                <span class="muted">missing: the registry points here but nothing is on disk</span>
+                            }
+                        </td>
+                        <td>@Fmt.Bytes(m.SizeBytes)</td>
+                        <td>@Fmt.Ago(m.LastUsedAt)</td>
+                        <td class="actions">
+                            <button class="btn small danger" data-action="delete" data-id="@m.ModelId" data-name="@m.Name">Remove</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+<section class="card">
+    <div class="toolbar">
+        <h2>Reclaimable files</h2>
+        <button class="btn small" data-action="scan-orphans">Rescan</button>
+    </div>
+    <p class="muted">Files under <code>models/</code> that no registered model claims: leftovers from a removed model, a manual copy, or an interrupted download. Nothing a model points at can be deleted here, even if this list is stale.</p>
+
+    @if (_orphans.Count == 0)
+    {
+        <p class="empty">Nothing to reclaim.</p>
+    }
+    else
+    {
+        <table id="orphans-table">
+            <thead><tr><th><input type="checkbox" id="orphan-all" /></th><th>File</th><th>Size</th><th>Modified</th><th>Why</th></tr></thead>
+            <tbody>
+                @foreach (var o in _orphans)
+                {
+                    <tr>
+                        <td><input type="checkbox" class="orphan" value="@o.Path" /></td>
+                        <td class="mono small">@o.Path</td>
+                        <td>@Fmt.Bytes(o.SizeBytes)</td>
+                        <td>@Fmt.Ago(o.ModifiedAt)</td>
+                        <td class="muted small">@o.Reason</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        <button class="btn danger" data-action="delete-orphans">Delete selected</button>
+    }
+</section>
+
+@code {
+    [Parameter] public DashboardContext Ctx { get; set; } = default!;
+
+    private StorageUsage _usage = new() { DataDirectory = "" };
+    private IReadOnlyList<OrphanedFile> _orphans = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _usage = await Storage.GetUsageAsync();
+        _orphans = await Storage.ScanOrphansAsync();
+    }
+}

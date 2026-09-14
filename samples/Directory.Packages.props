@@ -1,0 +1,7 @@
+<Project>
+  <!-- Samples opt out of the framework's central package management: they pin NetCoreAI.* through
+       $(NetCoreAIVersion) in Directory.Build.props, exactly like a real consumer would. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+</Project>

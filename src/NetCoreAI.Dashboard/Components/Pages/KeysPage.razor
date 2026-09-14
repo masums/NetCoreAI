@@ -1,0 +1,152 @@
+@using NetCoreAI.Agents
+@using NetCoreAI.Knowledge
+@using NetCoreAI.Security
+@inject IApiKeyService Keys
+@inject IAgentService Agents
+@inject IKnowledgeService Knowledge
+
+<header class="page-header">
+    <h1>API keys</h1>
+    <p class="muted">What another application holds to reach this host. A key's secret is shown once when it is made and never stored, so a lost one is replaced rather than recovered.</p>
+</header>
+
+<section class="card">
+    <div class="toolbar">
+        <h2>Keys</h2>
+        <span class="muted">@_keys.Count key(s)</span>
+    </div>
+
+    @if (_keys.Count == 0)
+    {
+        <p class="empty">No keys yet. Create one below and give it only the agents and knowledge bases it needs.</p>
+    }
+    else
+    {
+        <table id="keys-table">
+            <thead><tr><th>Name</th><th>Key</th><th>May run</th><th>May search</th><th>Limits</th><th>Last used</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var key in _keys)
+                {
+                    <tr data-id="@key.Id">
+                        <td>
+                            <strong>@key.Name</strong>
+                            @if (!key.Enabled)
+                            {
+                                <span class="tag">off</span>
+                            }
+                            @if (key.ExpiresAt is { } expiry && expiry <= DateTimeOffset.UtcNow)
+                            {
+                                <span class="tag warn">expired</span>
+                            }
+                            @if (key.Claims.Count > 0)
+                            {
+                                <br />
+                                @foreach (var claim in key.Claims)
+                                {
+                                    <span class="tag">@claim</span>
+                                }
+                            }
+                        </td>
+                        <td class="mono small">@key.Prefix…</td>
+                        <td class="small">@Describe(key.AgentIds)</td>
+                        <td class="small">@Describe(key.KnowledgeBaseIds)</td>
+                        <td class="small">
+                            @(key.RateLimitPerMinute is { } limit ? $"{limit}/min" : "no limit")
+                            @if (key.IpAllowList.Count > 0)
+                            {
+                                <br />
+                                <span class="muted">@key.IpAllowList.Count address rule(s)</span>
+                            }
+                        </td>
+                        <td class="small muted">@(key.LastUsedAt is { } used ? Fmt.Ago(used) : "never")</td>
+                        <td class="actions">
+                            <button class="btn small" data-action="key-edit" data-id="@key.Id">Edit…</button>
+                            <button class="btn small danger" data-action="key-delete" data-id="@key.Id" data-name="@key.Name">Revoke</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+<section class="card">
+    <h2>Issue a key</h2>
+    <p class="muted small">
+        Give it only what it needs. Scopes left empty mean <strong>none</strong> — a key with no scope can read this API but run nothing, which is the safe reading of "nobody said what this may do".
+        Claims are a service identity: whatever you put here decides which documents it can retrieve and which agents its access tags allow, so a claim granted here grants everything that claim grants.
+    </p>
+    <form id="key-form" class="grid-form">
+        <label>Name<input name="name" placeholder="Orders portal" required /></label>
+        <label>Requests per minute<input name="rateLimitPerMinute" type="number" min="1" value="120" /></label>
+        <label class="wide">Expires (blank never expires)<input name="expiresAt" type="date" /></label>
+
+        <h3 class="wide">May run</h3>
+        @if (_agents.Count == 0)
+        {
+            <p class="empty wide">No agents yet.</p>
+        }
+        else
+        {
+            <div class="wide">
+                <label class="checkbox"><input type="checkbox" class="key-agent" value="*" /> every agent, including ones added later</label>
+                @foreach (var agent in _agents)
+                {
+                    <label class="checkbox"><input type="checkbox" class="key-agent" value="@agent.Id" /> @agent.Name</label>
+                }
+            </div>
+        }
+
+        <h3 class="wide">May search</h3>
+        @if (_bases.Count == 0)
+        {
+            <p class="empty wide">No knowledge bases yet.</p>
+        }
+        else
+        {
+            <div class="wide">
+                <label class="checkbox"><input type="checkbox" class="key-kb" value="*" /> every knowledge base</label>
+                @foreach (var kb in _bases)
+                {
+                    <label class="checkbox"><input type="checkbox" class="key-kb" value="@kb.Id" /> @kb.Name</label>
+                }
+            </div>
+        }
+
+        <label class="wide">Claims it acts with (comma separated, <span class="mono">type=value</span>)<input name="claims" placeholder="role=support, tenant=acme" /></label>
+        <label class="wide">Addresses it may be used from (comma separated; blank means anywhere)<input name="ipAllowList" placeholder="203.0.113.7, 10.0.0.0/8" /></label>
+        <button class="btn" type="submit">Issue key</button>
+    </form>
+    <div id="key-created"></div>
+</section>
+
+<section class="card" id="key-detail" hidden>
+    <div class="toolbar">
+        <h2 id="key-detail-title">Key</h2>
+        <button class="btn small" data-action="key-close">Close</button>
+    </div>
+    <div id="key-detail-body"></div>
+</section>
+
+@code {
+    [Parameter] public DashboardContext Ctx { get; set; } = default!;
+
+    private IReadOnlyList<ApiKey> _keys = [];
+    private IReadOnlyList<AgentDefinition> _agents = [];
+    private IReadOnlyList<KnowledgeBase> _bases = [];
+
+    private static string Describe(IReadOnlyList<string> scope) => scope.Count switch
+    {
+        0 => "nothing",
+        _ when scope.Contains(ApiKey.All) => "everything",
+        1 => scope[0],
+        var n => $"{n} of them",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _keys = await Keys.ListAsync();
+        _agents = await Agents.ListAsync();
+        _bases = await Knowledge.ListAsync();
+    }
+}

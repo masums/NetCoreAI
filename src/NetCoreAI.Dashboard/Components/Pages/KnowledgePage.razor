@@ -1,0 +1,203 @@
+@using NetCoreAI.Knowledge
+@inject IKnowledgeService Knowledge
+@inject IModelRegistry Registry
+@inject IBackgroundJobRunner Jobs
+
+<header class="page-header">
+    <h1>Knowledge</h1>
+    <p class="muted">Documents your models can answer from, with citations. A base is ingested once and re-synced cheaply: unchanged documents are skipped on their content hash.</p>
+</header>
+
+@if (_embeddingModels.Count == 0)
+{
+    <section class="card">
+        <h2>An embedding model is needed first</h2>
+        <p class="muted">A knowledge base turns text into vectors with an embedding model, and none is registered yet. Download one from the <a href="@Ctx.Url("hub")">Model Hub</a> — the recommended list includes two that run on a CPU — or add a provider connection that offers embeddings.</p>
+    </section>
+}
+
+<section class="card">
+    <div class="toolbar">
+        <h2>Knowledge bases</h2>
+        <span class="muted">@_bases.Count base(s)</span>
+    </div>
+
+    @if (_bases.Count == 0)
+    {
+        <p class="empty">No knowledge bases yet. Create one below, attach a folder of documents, and ask questions about them in the <a href="@Ctx.Url("chat")">playground</a>.</p>
+    }
+    else
+    {
+        <table id="kb-table">
+            <thead><tr><th>Name</th><th>Embedding model</th><th>Documents</th><th>Chunks</th><th>Last ingested</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var kb in _bases)
+                {
+                    <tr data-id="@kb.Id">
+                        <td>
+                            <strong>@kb.Name</strong><br />
+                            <span class="muted mono">@kb.Id</span>
+                            @if (kb.DefaultAclTags.Count > 0)
+                            {
+                                <br />
+                                @foreach (var tag in kb.DefaultAclTags)
+                                {
+                                    <span class="tag">@tag</span>
+                                }
+                            }
+                        </td>
+                        <td class="mono small">@kb.EmbeddingModel</td>
+                        <td>@kb.DocumentCount</td>
+                        <td>@kb.ChunkCount</td>
+                        <td>@Fmt.Ago(kb.LastIngestedAt)</td>
+                        <td class="actions">
+                            <button class="btn small" data-action="kb-sync" data-id="@kb.Id">Sync</button>
+                            <button class="btn small" data-action="kb-open" data-id="@kb.Id">Sources…</button>
+                            <button class="btn small danger" data-action="kb-delete" data-id="@kb.Id" data-name="@kb.Name">Delete</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    <form id="kb-form" class="inline-form">
+        <input name="id" placeholder="id (e.g. handbook)" required pattern="[a-zA-Z0-9._-]+" />
+        <input name="name" placeholder="display name" required />
+        <select name="embeddingModel" required>
+            <option value="">embedding model…</option>
+            @foreach (var m in _embeddingModels)
+            {
+                <option value="@m.Descriptor.Id">@m.Descriptor.Name</option>
+            }
+        </select>
+        <select name="strategy">
+            @foreach (var strategy in Enum.GetValues<ChunkingStrategy>())
+            {
+                <option value="@strategy" selected="@(strategy == ChunkingStrategy.RecursiveStructure)">@strategy</option>
+            }
+        </select>
+        <button class="btn" type="submit">Create</button>
+    </form>
+</section>
+
+<section class="card" id="kb-detail" hidden>
+    <div class="toolbar">
+        <h2>Sources</h2>
+        <button class="btn small" data-action="kb-close">Close</button>
+    </div>
+    <div id="kb-detail-body"></div>
+
+    <form id="source-form" class="grid-form">
+        <input type="hidden" name="knowledgeBaseId" />
+        <label>Name<input name="name" placeholder="Handbook folder" required /></label>
+        <label>Type
+            <select name="type">
+                @foreach (var type in Knowledge.SourceTypes)
+                {
+                    <option value="@type">@type</option>
+                }
+            </select>
+        </label>
+        @* Only the fields belonging to the chosen type are shown; the rest would be noise a reader has to
+           work out is irrelevant. The JS toggles on data-for. *@
+        <label class="wide" data-for="files">Folder (server path; blank uses this base's upload folder)<input name="folder" placeholder="/srv/documents/handbook" /></label>
+        <label data-for="files">File pattern<input name="pattern" placeholder="*.pdf;*.docx" /></label>
+        <label class="wide" data-for="rest">URL<input name="url" placeholder="https://internal/api/articles" /></label>
+        <label data-for="rest">Items path<input name="itemsPath" placeholder="data.items" /></label>
+        <label data-for="rest">Title path<input name="titlePath" placeholder="subject" /></label>
+        <label data-for="rest">Content path<input name="contentPath" placeholder="body" /></label>
+        <label data-for="sql">ADO.NET provider<input name="provider" placeholder="Npgsql" /></label>
+        <label class="wide" data-for="sql">Connection string (stored encrypted)<input name="connectionString" type="password" placeholder="Host=db;Database=support;Username=…" /></label>
+        <label class="wide" data-for="sql">Query — one row becomes one document<textarea name="query" rows="3" placeholder="SELECT id, subject, body, team, updated FROM tickets"></textarea></label>
+        <label data-for="sql">Id column<input name="idColumn" placeholder="id" /></label>
+        <label data-for="sql">Title column<input name="titleColumn" placeholder="subject" /></label>
+        <label data-for="sql">Content columns (blank uses all the rest)<input name="contentColumns" placeholder="subject,body" /></label>
+        <label data-for="sql">Access-tag column<input name="aclColumn" placeholder="team" /></label>
+        <label data-for="sql">Last-modified column<input name="modifiedColumn" placeholder="updated" /></label>
+        <label class="wide">Schedule (cron; blank means manual only)<input name="schedule" placeholder="0 3 * * *" /></label>
+        <label class="wide">Access tags (comma separated; blank means everyone)<input name="aclTags" placeholder="role:hr, tenant:acme" /></label>
+        <button class="btn" type="submit">Save source</button>
+    </form>
+</section>
+
+<section class="card">
+    <div class="toolbar">
+        <h2>Ingestion jobs</h2>
+        <span class="muted">@_jobs.Count job(s)</span>
+    </div>
+    @if (_jobs.Count == 0)
+    {
+        <p class="empty">Nothing has been ingested yet.</p>
+    }
+    else
+    {
+        <table id="jobs-table">
+            <thead><tr><th>Target</th><th>Progress</th><th>State</th><th>Failures</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var job in _jobs)
+                {
+                    <tr data-id="@job.Id">
+                        <td>
+                            <span class="mono">@(job.TargetId ?? "–")</span><br />
+                            <small class="muted">@job.Type · @Fmt.Ago(job.CreatedAt)</small>
+                        </td>
+                        <td>
+                            <progress value="@job.ItemsDone" max="@(job.ItemsTotal > 0 ? job.ItemsTotal : 1)"></progress><br />
+                            <small class="muted">@job.ItemsDone of @job.ItemsTotal@(job.Status is null ? "" : $" · {job.Status}")</small>
+                        </td>
+                        <td>
+                            <span class="status @job.State.ToString().ToLowerInvariant()">@job.State</span>
+                            @if (job.Error is not null) { <br /><small class="muted">@job.Error</small> }
+                        </td>
+                        <td>
+                            @if (job.ItemsFailed == 0)
+                            {
+                                <span class="muted">–</span>
+                            }
+                            else
+                            {
+                                <details>
+                                    <summary>@job.ItemsFailed failed</summary>
+                                    <ul class="small">
+                                        @foreach (var failure in job.Failures.Take(20))
+                                        {
+                                            <li><strong>@failure.Item</strong>: @failure.Error</li>
+                                        }
+                                    </ul>
+                                </details>
+                            }
+                        </td>
+                        <td class="actions">
+                            @if (job.State is JobState.Running or JobState.Queued)
+                            {
+                                <button class="btn small danger" data-action="job-cancel" data-id="@job.Id">Cancel</button>
+                            }
+                            else if (job.State == JobState.Failed)
+                            {
+                                <button class="btn small" data-action="job-retry" data-id="@job.Id">Retry</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+@code {
+    [Parameter] public DashboardContext Ctx { get; set; } = default!;
+
+    private IReadOnlyList<KnowledgeBase> _bases = [];
+    private IReadOnlyList<ModelEntry> _embeddingModels = [];
+    private IReadOnlyList<JobRecord> _jobs = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _bases = await Knowledge.ListAsync();
+        _jobs = [.. (await Jobs.ListAsync()).Where(j => j.Type.StartsWith("kb.", StringComparison.Ordinal)).Take(20)];
+
+        // Only models that say they can embed: offering a chat model here produces a base that cannot index.
+        _embeddingModels = [.. (await Registry.ListAsync()).Where(m => m.Descriptor.Capabilities.Supports(ModelCapability.Embeddings))];
+    }
+}

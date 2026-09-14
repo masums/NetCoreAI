@@ -1,0 +1,125 @@
+@inject IModelRegistry Registry
+
+<header class="page-header">
+    <h1>Models</h1>
+    <p class="muted">Local and remote models in one registry. Aliases let code ask for <code>chatClientFactory.Get("fast")</code> without knowing which model backs it.</p>
+</header>
+
+<section class="card">
+    <div class="toolbar">
+        <h2>Registry</h2>
+        <span class="muted">@_models.Count model(s)</span>
+    </div>
+    @if (_models.Count == 0)
+    {
+        <p class="empty">No models yet. Download one from the <a href="@Ctx.Url("hub")">Model Hub</a>, import a file the server can read, or add a <a href="@Ctx.Url("providers")">provider connection</a> and sync its models.</p>
+    }
+    else
+    {
+        <table id="models-table">
+            <thead><tr><th>Name</th><th>Provider</th><th>Format</th><th>Capabilities</th><th>Context</th><th>Aliases</th><th>Last used</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var e in _models)
+                {
+                    var d = e.Descriptor;
+                    <tr data-id="@d.Id">
+                        <td><strong>@d.Name</strong><br /><span class="muted mono">@d.Id</span></td>
+                        <td>@d.ProviderId</td>
+                        <td>@d.Format @(d.Quantization is null ? "" : $"· {d.Quantization}")</td>
+                        <td>@Fmt.Caps(d.Capabilities)</td>
+                        <td>@(d.ContextLength?.ToString() ?? d.Capabilities.MaxContext?.ToString() ?? "–")</td>
+                        <td>
+                            @foreach (var a in _aliases.Values.Where(a => a.ModelId == d.Id))
+                            {
+                                <span class="tag">@a.Alias</span>
+                            }
+                        </td>
+                        <td>@Fmt.Ago(d.LastUsedAt)</td>
+                        <td><span class="status @e.Status.ToString().ToLowerInvariant()">@e.Status</span>@if (e.StatusMessage is not null) { <br /><small class="muted">@e.StatusMessage</small> }</td>
+                        <td class="actions">
+                            @if (e.Status == ModelStatus.Loaded)
+                            {
+                                <button class="btn small" data-action="unload" data-id="@d.Id">Unload</button>
+                            }
+                            else if (!d.IsRemote)
+                            {
+                                <button class="btn small" data-action="load" data-id="@d.Id">Load</button>
+                            }
+                            <button class="btn small" data-action="edit-model" data-id="@d.Id">Edit…</button>
+                            <button class="btn small" data-action="alias" data-id="@d.Id">Alias…</button>
+                            <button class="btn small danger" data-action="delete" data-id="@d.Id" data-name="@d.Name">Remove</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+<section class="card" id="model-editor" hidden>
+    <div class="toolbar">
+        <h2>Edit model</h2>
+        <button class="btn small" data-action="close-editor">Close</button>
+    </div>
+    <p class="muted">Defaults applied to every call that does not set its own <code>ChatOptions</code>. Leave a field blank to use the provider's own default.</p>
+    <form id="model-form" class="grid-form">
+        <input type="hidden" name="id" />
+        <label>Display name<input name="name" /></label>
+        <label>Context length<input name="contextLength" type="number" min="128" step="128" placeholder="model default" /></label>
+        <label>Temperature<input name="temperature" type="number" min="0" max="2" step="0.05" placeholder="provider default" /></label>
+        <label>Top-p<input name="topP" type="number" min="0" max="1" step="0.05" placeholder="provider default" /></label>
+        <label>Top-k<input name="topK" type="number" min="0" step="1" placeholder="provider default" /></label>
+        <label>Max output tokens<input name="maxOutputTokens" type="number" min="1" step="16" placeholder="unlimited" /></label>
+        <label>Repeat penalty<input name="repeatPenalty" type="number" min="0" max="2" step="0.05" placeholder="provider default" /></label>
+        <label>Seed<input name="seed" type="number" step="1" placeholder="random" /></label>
+        <label class="wide">System prompt<textarea name="systemPrompt" rows="3" placeholder="none"></textarea></label>
+        <label class="wide">Stop sequences<input name="stopSequences" placeholder="comma separated" /></label>
+        <label class="wide">Tags<input name="tags" placeholder="comma separated" /></label>
+        <label class="wide">Notes<textarea name="notes" rows="2" placeholder="why this model is here, who uses it"></textarea></label>
+        <label class="checkbox"><input type="checkbox" name="loadOnStartup" /> load when the host starts</label>
+        <button class="btn" type="submit">Save</button>
+    </form>
+</section>
+
+<section class="card">
+    <h2>Aliases</h2>
+    <p class="muted">Primary model plus an ordered fallback list. <code>default</code> is used by <code>IChatClient</code> injected into your services; <code>embed</code> by knowledge bases.</p>
+    <table>
+        <thead><tr><th>Alias</th><th>Model</th><th>Fallbacks</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var a in _aliases.Values.OrderBy(a => a.Alias))
+            {
+                <tr>
+                    <td><span class="tag">@a.Alias</span></td>
+                    <td>@(_models.FirstOrDefault(m => m.Descriptor.Id == a.ModelId)?.Descriptor.Name ?? a.ModelId)</td>
+                    <td>@(a.FallbackModelIds.Count == 0 ? "–" : string.Join(" → ", a.FallbackModelIds))</td>
+                    <td class="actions"><button class="btn small danger" data-action="remove-alias" data-alias="@a.Alias">Remove</button></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    <form id="alias-form" class="inline-form" data-api="models/aliases">
+        <input name="alias" placeholder="alias (e.g. fast)" required />
+        <select name="modelId" required>
+            <option value="">model…</option>
+            @foreach (var m in _models)
+            {
+                <option value="@m.Descriptor.Id">@m.Descriptor.Name</option>
+            }
+        </select>
+        <input name="fallbacks" placeholder="fallback ids, comma separated (optional)" />
+        <button class="btn" type="submit">Save alias</button>
+    </form>
+</section>
+
+@code {
+    [Parameter] public DashboardContext Ctx { get; set; } = default!;
+    private IReadOnlyList<ModelEntry> _models = [];
+    private IReadOnlyDictionary<string, ModelAlias> _aliases = new Dictionary<string, ModelAlias>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _models = await Registry.ListAsync();
+        _aliases = await Registry.GetAliasesAsync();
+    }
+}

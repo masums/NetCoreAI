@@ -1,0 +1,83 @@
+@using NetCoreAI.Providers
+@inject IProviderRegistry ProviderRegistry
+@inject IConnectionManager Connections
+
+<header class="page-header">
+    <h1>Providers</h1>
+    <p class="muted">Remote providers sit beside local models. Add a connection, test it, then sync its models into the registry. Keys are encrypted with Data Protection and never shown again.</p>
+</header>
+
+<section class="card">
+    <h2>Connections</h2>
+    @if (_connections.Count == 0)
+    {
+        <p class="empty">No connections yet.</p>
+    }
+    else
+    {
+        <table>
+            <thead><tr><th>Name</th><th>Provider</th><th>Preset</th><th>Base URL</th><th>Health</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var c in _connections)
+                {
+                    <tr data-id="@c.Id">
+                        <td><strong>@c.Name</strong>@(c.Enabled ? "" : " (disabled)")</td>
+                        <td>@c.ProviderId</td>
+                        <td>@c.Preset</td>
+                        <td class="mono">@c.BaseUrl</td>
+                        <td><span class="status @c.Health.ToString().ToLowerInvariant()">@c.Health</span>@if (c.HealthMessage is not null) { <br /><small class="muted">@c.HealthMessage</small> }</td>
+                        <td class="actions">
+                            <button class="btn small" data-action="test-connection" data-id="@c.Id">Test</button>
+                            <button class="btn small" data-action="sync-models" data-id="@c.Id">Sync models</button>
+                            <button class="btn small danger" data-action="delete-connection" data-id="@c.Id" data-name="@c.Name">Remove</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+<section class="card">
+    <h2>Add connection</h2>
+    @if (_remoteProviders.Count == 0)
+    {
+        <p class="empty">No remote provider package is registered. Add <code>.AddOllamaBackend()</code>, <code>.AddOpenAICompatibleBackend()</code> or <code>.AddAnthropicBackend()</code> in <code>Program.cs</code>.</p>
+    }
+    else
+    {
+        <form id="connection-form" class="form" data-api="providers/connections">
+            <label>Provider
+                <select name="providerId" required>
+                    @foreach (var p in _remoteProviders)
+                    {
+                        <option value="@p.Id">@p.DisplayName</option>
+                    }
+                </select>
+            </label>
+            <label>Preset <select name="preset"></select></label>
+            <label>Name <input name="name" placeholder="e.g. OpenAI-prod" required /></label>
+            <label>Base URL <input name="baseUrl" placeholder="filled from preset" /></label>
+            <label>API key / token <input name="secret" type="password" autocomplete="off" placeholder="stored encrypted" /></label>
+            <label data-setting="api-version" hidden>Azure api-version <input name="setting:api-version" placeholder="2024-10-21" /></label>
+            <div class="form-actions"><button class="btn primary" type="submit">Save connection</button></div>
+        </form>
+        <script type="application/json" id="presets-json">@_presetsJson</script>
+    }
+</section>
+
+@code {
+    [Parameter] public DashboardContext Ctx { get; set; } = default!;
+    private IReadOnlyList<ProviderConnection> _connections = [];
+    private IReadOnlyList<IConnectionAwareProvider> _remoteProviders = [];
+    private static readonly System.Text.Json.JsonSerializerOptions Json = new(System.Text.Json.JsonSerializerDefaults.Web);
+    private MarkupString _presetsJson;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _connections = await Connections.ListAsync();
+        _remoteProviders = ProviderRegistry.All.OfType<IConnectionAwareProvider>().Where(ProviderRegistry.IsEnabled).ToList();
+        var presets = _remoteProviders.ToDictionary(p => p.Id, p => p.Presets);
+        _presetsJson = new MarkupString(System.Text.Json.JsonSerializer.Serialize(presets, Json).Replace("</", "<\\/"));
+    }
+}

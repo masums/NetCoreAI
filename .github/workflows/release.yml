@@ -1,0 +1,21 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: global.json }
+      - run: dotnet build NetCoreAI.slnx -c Release
+      - run: dotnet test --solution NetCoreAI.slnx --no-build -c Release
+      - run: dotnet pack NetCoreAI.slnx --no-build -c Release -o artifacts/packages
+      # Dry run until open question #8 (NuGet id availability) is resolved; then remove --dry-run... (dotnet nuget push has none, so this step is gated by the secret being present)
+      - name: Push to NuGet
+        if: ${{ secrets.NUGET_API_KEY != '' }}
+        run: dotnet nuget push "artifacts/packages/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate

@@ -1,0 +1,132 @@
+@using NetCoreAI.Settings
+@using NetCoreAI.Providers
+@inject ISettingsService SettingsService
+@inject IProviderRegistry Providers
+@inject IModelRegistry Models
+
+<header class="page-header">
+    <h1>Settings</h1>
+    <p class="muted">Values saved here override <code>appsettings.json</code> and take effect immediately. Environment variables (<code>NETCOREAI__…</code>) override both in containers.</p>
+</header>
+
+@if (_s is null)
+{
+    <p class="empty">Loading…</p>
+}
+else
+{
+    <form id="settings-form" class="form" data-api="settings">
+        <section class="card">
+            <h2>General</h2>
+            <label>Data directory <input value="@_s.DataDirectory" disabled /><small class="muted">Set in code or appsettings; changing it requires a restart.</small></label>
+            <label>Dashboard title <input name="dashboardTitle" value="@_s.DashboardTitle" /></label>
+            <label>Default context size <input name="defaultContextSize" type="number" min="512" step="256" value="@_s.DefaultContextSize" /></label>
+            <label>Idle unload (minutes, 0 = never) <input name="idleUnloadMinutes" type="number" min="0" value="@(_s.IdleUnloadMinutes ?? 0)" /></label>
+            <label>Memory budget (bytes, 0 = auto: 80 % RAM + VRAM) <input name="memoryBudgetBytes" type="number" min="0" value="@(_s.MemoryBudgetBytes ?? 0)" /></label>
+            <label>Storage quota warning (bytes, 0 = off) <input name="storageQuotaWarningBytes" type="number" min="0" value="@(_s.StorageQuotaWarningBytes ?? 0)" /></label>
+            <label><input name="telemetryEnabled" type="checkbox" checked="@_s.TelemetryEnabled" /> Emit OpenTelemetry traces and metrics (no data leaves the host unless you export it)</label>
+        </section>
+
+        <section class="card">
+            <h2>Default models</h2>
+            <p class="muted">Which model answers when code asks for one without naming it: <code>IChatClient</code> injected into your services uses <code>default</code>, and knowledge bases use <code>embed</code>. These are aliases, so pointing one at another model takes effect on the next call with no restart and no code change.</p>
+            @if (_models.Count == 0)
+            {
+                <p class="empty">No models registered yet. Download one from the <a href="@Ctx.Url("hub")">Model Hub</a> or add a <a href="@Ctx.Url("providers")">provider connection</a>.</p>
+            }
+            else
+            {
+                <label>Default chat model
+                    <select data-alias="default">
+                        <option value="">— none —</option>
+                        @foreach (var m in _chatModels)
+                        {
+                            <option value="@m.Descriptor.Id" selected="@(_aliases.TryGetValue(ModelAlias.Default, out var d) && d.ModelId == m.Descriptor.Id)">@m.Descriptor.Name</option>
+                        }
+                    </select>
+                </label>
+                <label>Default embedding model
+                    <select data-alias="embed">
+                        <option value="">— none —</option>
+                        @foreach (var m in _embeddingModels)
+                        {
+                            <option value="@m.Descriptor.Id" selected="@(_aliases.TryGetValue(ModelAlias.Embed, out var e) && e.ModelId == m.Descriptor.Id)">@m.Descriptor.Name</option>
+                        }
+                    </select>
+                </label>
+                @if (_embeddingModels.Count == 0)
+                {
+                    <p class="muted small">No model advertises embeddings. Anthropic models cannot embed at all; pair them with a local GGUF or ONNX embedding model for knowledge bases.</p>
+                }
+            }
+        </section>
+
+        <section class="card">
+            <h2>Execution</h2>
+            <label>Execution provider preference
+                <select name="executionProvider">
+                    @foreach (var ep in Enum.GetValues<ExecutionProvider>())
+                    {
+                        <option value="@ep" selected="@(ep == _s.ExecutionProvider)">@ep</option>
+                    }
+                </select>
+            </label>
+            <label>Threads (0 = auto) <input name="threads" type="number" min="0" value="@(_s.Threads ?? 0)" /></label>
+            <label>Default concurrency
+                <select name="defaultConcurrency">
+                    @foreach (var c in Enum.GetValues<ConcurrencyPolicy>())
+                    {
+                        <option value="@c" selected="@(c == _s.DefaultConcurrency)">@c</option>
+                    }
+                </select>
+            </label>
+        </section>
+
+        <section class="card">
+            <h2>Network &amp; Hugging Face</h2>
+            <label><input name="offlineMode" type="checkbox" checked="@_s.OfflineMode" /> Offline mode (block hub browsing, downloads and remote providers except allow-listed hosts)</label>
+            <label>Hugging Face endpoint / mirror <input name="huggingFaceEndpoint" value="@_s.HuggingFaceEndpoint" /></label>
+            <label>Hugging Face API token
+                <input name="huggingFaceToken" type="password" autocomplete="off" placeholder="@(_s.HasHuggingFaceToken ? "•••••••• (set; enter a new value to replace, or 'clear' to remove)" : "hf_… (optional: higher rate limits, gated models)")" />
+                <small class="muted">Stored encrypted, sent as a bearer token on every Hub request. Get one at huggingface.co/settings/tokens (read scope is enough).</small>
+            </label>
+            <label>Proxy URL <input name="proxyUrl" value="@_s.ProxyUrl" placeholder="http://proxy:3128 (optional)" /></label>
+            <label>Download bandwidth limit (bytes/s, 0 = unlimited) <input name="bandwidthLimitBytesPerSecond" type="number" min="0" value="@(_s.BandwidthLimitBytesPerSecond ?? 0)" /></label>
+        </section>
+
+        <section class="card">
+            <h2>Providers</h2>
+            <label><input name="remoteProvidersEnabled" type="checkbox" checked="@_s.RemoteProvidersEnabled" /> Remote providers enabled (Ollama, OpenAI-compatible, Anthropic…)</label>
+            <fieldset>
+                <legend>Disabled providers</legend>
+                @foreach (var p in Providers.All)
+                {
+                    <label class="inline"><input type="checkbox" name="disabledProviders" value="@p.Id" checked="@_s.DisabledProviders.Contains(p.Id, StringComparer.OrdinalIgnoreCase)" /> @p.DisplayName</label>
+                }
+            </fieldset>
+        </section>
+
+        <div class="form-actions"><button class="btn primary" type="submit">Save settings</button></div>
+    </form>
+}
+
+@code {
+    private IReadOnlyList<ModelEntry> _models = [];
+    private IReadOnlyList<ModelEntry> _chatModels = [];
+    private IReadOnlyList<ModelEntry> _embeddingModels = [];
+    private IReadOnlyDictionary<string, ModelAlias> _aliases = new Dictionary<string, ModelAlias>();
+
+    [Parameter] public DashboardContext Ctx { get; set; } = default!;
+    private NetCoreAISettings? _s;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _s = await SettingsService.GetAsync();
+        _models = await Models.ListAsync();
+        _aliases = await Models.GetAliasesAsync();
+
+        // Only offer a model for a job it says it can do: the capability flags come from the provider.
+        _chatModels = [.. _models.Where(m => m.Descriptor.Capabilities.Supports(ModelCapability.Chat))];
+        _embeddingModels = [.. _models.Where(m => m.Descriptor.Capabilities.Supports(ModelCapability.Embeddings))];
+    }
+}

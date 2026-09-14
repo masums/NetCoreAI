@@ -1,0 +1,28 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/NetCoreAI.Abstractions/NetCoreAI.Abstractions.csproj" />
+    <Project Path="src/NetCoreAI.Client/NetCoreAI.Client.csproj" />
+    <Project Path="src/NetCoreAI.Core/NetCoreAI.Core.csproj" />
+    <Project Path="src/NetCoreAI.Dashboard/NetCoreAI.Dashboard.csproj" />
+    <Project Path="src/NetCoreAI.Documents/NetCoreAI.Documents.csproj" />
+    <Project Path="src/NetCoreAI/NetCoreAI.csproj" />
+    <Project Path="src/Storage/NetCoreAI.Storage.Sqlite/NetCoreAI.Storage.Sqlite.csproj" />
+    <Project Path="src/VectorStores/NetCoreAI.VectorStore.Sqlite/NetCoreAI.VectorStore.Sqlite.csproj" />
+  </Folder>
+  <Folder Name="/src/Backends/">
+    <Project Path="src/Backends/NetCoreAI.Backend.Anthropic/NetCoreAI.Backend.Anthropic.csproj" />
+    <Project Path="src/Backends/NetCoreAI.Backend.Gguf.Cuda12/NetCoreAI.Backend.Gguf.Cuda12.csproj" />
+    <Project Path="src/Backends/NetCoreAI.Backend.Gguf.Vulkan/NetCoreAI.Backend.Gguf.Vulkan.csproj" />
+    <Project Path="src/Backends/NetCoreAI.Backend.Gguf/NetCoreAI.Backend.Gguf.csproj" />
+    <Project Path="src/Backends/NetCoreAI.Backend.Ollama/NetCoreAI.Backend.Ollama.csproj" />
+    <Project Path="src/Backends/NetCoreAI.Backend.Onnx/NetCoreAI.Backend.Onnx.csproj" />
+    <Project Path="src/Backends/NetCoreAI.Backend.OpenAICompatible/NetCoreAI.Backend.OpenAICompatible.csproj" />
+  </Folder>
+  <Folder Name="/src/Storage/" />
+  <Folder Name="/src/VectorStores/" />
+  <Folder Name="/tests/">
+    <Project Path="tests/NetCoreAI.Conformance/NetCoreAI.Conformance.csproj" />
+    <Project Path="tests/NetCoreAI.Core.Tests/NetCoreAI.Core.Tests.csproj" />
+    <Project Path="tests/NetCoreAI.Integration.Tests/NetCoreAI.Integration.Tests.csproj" />
+  </Folder>
+</Solution>

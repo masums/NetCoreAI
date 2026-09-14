@@ -1,0 +1,12 @@
+<Project>
+  <!-- Samples consume NetCoreAI as NuGet packages (never ProjectReference into src/).
+       Bump this one line to move every sample to a new framework version.
+       During development, build/pack.ps1 fills artifacts/packages and samples/nuget.config points at it. -->
+  <PropertyGroup>
+    <NetCoreAIVersion>0.1.0-*</NetCoreAIVersion>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+</Project>

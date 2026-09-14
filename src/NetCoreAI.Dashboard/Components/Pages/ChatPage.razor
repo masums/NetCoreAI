@@ -1,0 +1,91 @@
+@using NetCoreAI.Chat
+@inject IModelRegistry Registry
+@inject IChatService ChatService
+@inject NetCoreAI.Knowledge.IKnowledgeService Knowledge
+
+<div class="chat-layout">
+    <aside class="chat-sessions card">
+        <div class="toolbar"><h2>Chats</h2><button class="btn small" id="new-chat">New</button></div>
+        <ul id="session-list">
+            @foreach (var s in _sessions)
+            {
+                <li data-id="@s.Id"><a href="#" data-session="@s.Id">@s.Title</a><small class="muted">@Fmt.Ago(s.UpdatedAt)</small></li>
+            }
+        </ul>
+    </aside>
+
+    <section class="chat-main card">
+        <div class="toolbar">
+            <select id="chat-model" title="Model">
+                @if (_chatModels.Count == 0)
+                {
+                    <option value="">No chat model registered</option>
+                }
+                @foreach (var m in _chatModels)
+                {
+                    <option value="@m.Descriptor.Id">@m.Descriptor.Name @(m.Status == ModelStatus.Loaded ? "● loaded" : "")</option>
+                }
+            </select>
+            <span class="spacer"></span>
+            <button class="btn small" id="toggle-params">Parameters</button>
+            <button class="btn small" id="export-md" disabled>Export .md</button>
+            <button class="btn small" id="export-json" disabled>Export .json</button>
+            <button class="btn small danger" id="delete-session" disabled>Delete</button>
+        </div>
+        <div id="messages" class="messages">
+            <p class="empty">Pick a model and say hello. Local models load on first message.</p>
+        </div>
+        <form id="chat-form" class="chat-input">
+            <textarea id="chat-text" rows="2" placeholder="Message… (Enter to send, Shift+Enter for newline)" required></textarea>
+            <button class="btn primary" type="submit" id="send">Send</button>
+            <button class="btn" type="button" id="stop" hidden>Stop</button>
+        </form>
+    </section>
+
+    <aside class="chat-params card" id="params" hidden>
+        <h2>Parameters</h2>
+        <label>System prompt <textarea name="systemPrompt" rows="4"></textarea></label>
+        <label>Temperature <input name="temperature" type="number" step="0.05" min="0" max="2" placeholder="model default" /></label>
+        <label>Top-p <input name="topP" type="number" step="0.05" min="0" max="1" placeholder="model default" /></label>
+        <label>Top-k <input name="topK" type="number" step="1" min="0" placeholder="model default" /></label>
+        <label>Max output tokens <input name="maxOutputTokens" type="number" step="1" min="1" placeholder="model default" /></label>
+        <label>Repeat / frequency penalty <input name="frequencyPenalty" type="number" step="0.05" placeholder="model default" /></label>
+        <label>Seed <input name="seed" type="number" step="1" placeholder="random" /></label>
+
+        <h2>Knowledge</h2>
+        @if (_knowledgeBases.Count == 0)
+        {
+            <p class="muted small">No knowledge bases yet. Create one on the <a href="@Ctx.Url("knowledge")">Knowledge</a> page to answer from your own documents, with citations.</p>
+        }
+        else
+        {
+            <p class="muted small">Answers are grounded in the bases you pick, and every answer shows what it was drawn from.</p>
+            @foreach (var kb in _knowledgeBases)
+            {
+                <label class="checkbox"><input type="checkbox" class="kb-pick" value="@kb.Id" /> @kb.Name <span class="muted">(@kb.DocumentCount doc)</span></label>
+            }
+
+            @* Named nothing, so the parameters collector below cannot mistake these for model parameters. *@
+            <h2>Retrieval</h2>
+            <p class="muted small">These apply to this chat only, and take effect on the next message.</p>
+            <label>Passages per question <input id="r-topk" type="number" step="1" min="1" max="50" placeholder="5" /></label>
+            <label>Minimum score <input id="r-minscore" type="number" step="0.05" min="0" max="1" placeholder="0.35" /></label>
+            <label class="checkbox"><input type="checkbox" id="r-debug" /> Show retrieved chunks</label>
+            <p class="muted small">Shows every passage retrieved, with its score, under the answer — including ones the model ignored. Raise the minimum score when passages that are merely on-topic crowd out the right one.</p>
+        }
+    </aside>
+</div>
+
+@code {
+    [Parameter] public DashboardContext Ctx { get; set; } = default!;
+    private IReadOnlyList<ModelEntry> _chatModels = [];
+    private IReadOnlyList<KnowledgeBase> _knowledgeBases = [];
+    private IReadOnlyList<ChatSession> _sessions = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _chatModels = (await Registry.ListAsync()).Where(m => m.Descriptor.Capabilities.Supports(ModelCapability.Chat) || m.Descriptor.Capabilities == ModelCapabilities.None).ToList();
+        _sessions = await ChatService.ListSessionsAsync(null);
+        _knowledgeBases = await Knowledge.ListAsync();
+    }
+}
