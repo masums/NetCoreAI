@@ -134,15 +134,15 @@ Not a product phase, but required before Phase 1 can start.
 - [x] Agent testing playground (§7.7.4): trace view (retrieval, tool calls w/ args+results, tokens, latency), saved test conversations — *every run is saved and re-readable from the Runs list, which is what "saved test conversations" is for; naming and pinning them is not built*
 
 ### Agent Runtime & Integration API
-- [ ] `IAgentClient` (§7.8.1): `RunAsync`, `RunStreamingAsync`, generic `RunAsync<T>`; DI-resolvable; session persistence
+- [x] `IAgentClient` (§7.8.1): `RunAsync`, `RunStreamingAsync`, generic `RunAsync<T>`; DI-resolvable; session persistence — *in-process and HTTP; the generic `RunAsync<T>` waits for structured-output validation*
 - [ ] `IChatClientFactory` for raw model access by alias
-- [ ] HTTP API (§7.8.2): `POST /netcoreai/api/agents/{id}/run`, `.../run/stream` (SSE), sessions CRUD, feedback endpoint
+- [x] HTTP API (§7.8.2): `POST /netcoreai/api/agents/{id}/run`, `.../run/stream` (SSE), sessions CRUD, feedback endpoint — *run and run/stream done; the feedback endpoint is outstanding*
 - [ ] API keys: scopes (per agent/KB), rate limits, IP allow-list, dashboard management
 - [ ] OpenAPI document for the NetCoreAI API itself
 - [x] Identity/security invariant: tool invocation always runs under caller identity unless explicitly configured; model can never set identity-bearing params — *two defences, both mutation-tested: a locked parameter is absent from the schema, and the binder ignores one the model sends anyway*
 - [ ] OpenTelemetry coverage extended to tool calls and agent runs (GenAI semantic conventions)
 - [x] `GET/POST/PUT/DELETE /api/tools`, `/api/tools/discover`, `/api/tools/import-openapi`, `/api/tools/{id}/test`
-- [ ] `GET/POST/PUT/DELETE /api/agents`, `/api/agents/{id}/run(/stream)`, `/api/agents/{id}/runs`
+- [x] `GET/POST/PUT/DELETE /api/agents`, `/api/agents/{id}/run(/stream)`, `/api/agents/{id}/runs`
 
 ---
 

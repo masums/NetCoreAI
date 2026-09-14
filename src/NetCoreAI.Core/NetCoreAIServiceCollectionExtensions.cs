@@ -127,6 +127,13 @@ public static class NetCoreAIServiceCollectionExtensions
         // Agents: model, retrieval and tools assembled per run, with a trace written for each.
         services.TryAddSingleton<NetCoreAI.Agents.IAgentEngine, NetCoreAI.Agents.AgentEngine>();
         services.TryAddSingleton<NetCoreAI.Agents.IAgentService, NetCoreAI.Agents.AgentService>();
+        services.TryAddSingleton<IAgentClient, NetCoreAI.Agents.AgentClient>();
+
+        // Registered here rather than left to the host: without it the in-process IAgentClient cannot see
+        // the current request, so an agent run from inside one would silently act as nobody — no
+        // ACL-restricted document, no agent with access tags, and no loopback address for its tools. The
+        // accessor is a singleton holding an AsyncLocal, so a host that never uses it pays nothing.
+        services.AddHttpContextAccessor();
 
         // Named, so a host can give tool traffic its own handlers — a proxy, a client certificate, a
         // retry policy — without touching the clients the model providers use.
