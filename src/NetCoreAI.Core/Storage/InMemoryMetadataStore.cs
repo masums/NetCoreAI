@@ -19,6 +19,7 @@ public sealed class InMemoryMetadataStore : IMetadataStore
     private readonly ConcurrentDictionary<string, DataSourceDefinition> _dataSources = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, KnowledgeDocument> _documents = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, JobRecord> _jobs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, ToolDefinition> _tools = new(StringComparer.OrdinalIgnoreCase);
 
     public InMemoryMetadataStore()
     {
@@ -30,6 +31,7 @@ public sealed class InMemoryMetadataStore : IMetadataStore
         Downloads = new DownloadStore(_downloads);
         Knowledge = new KnowledgeStore(_knowledgeBases, _dataSources, _documents);
         Jobs = new JobStore(_jobs);
+        Tools = new ToolStore(_tools);
     }
 
     public IModelStore Models { get; }
@@ -40,10 +42,20 @@ public sealed class InMemoryMetadataStore : IMetadataStore
     public IDownloadStore Downloads { get; }
     public IKnowledgeStore Knowledge { get; }
     public IJobStore Jobs { get; }
+    public IToolStore Tools { get; }
 
     public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
     public Task<bool> IsHealthyAsync(CancellationToken cancellationToken = default) => Task.FromResult(true);
+
+    private sealed class ToolStore(ConcurrentDictionary<string, ToolDefinition> d) : IToolStore
+    {
+        public Task<IReadOnlyList<ToolDefinition>> ListAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<ToolDefinition>>(d.Values.OrderBy(t => t.Name, StringComparer.Ordinal).ToList());
+        public Task<ToolDefinition?> GetAsync(string id, CancellationToken ct = default) => Task.FromResult(d.GetValueOrDefault(id));
+        public Task<ToolDefinition?> GetByNameAsync(string name, CancellationToken ct = default) => Task.FromResult(d.Values.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.Ordinal)));
+        public Task UpsertAsync(ToolDefinition tool, CancellationToken ct = default) { d[tool.Id] = tool; return Task.CompletedTask; }
+        public Task DeleteAsync(string id, CancellationToken ct = default) { d.TryRemove(id, out _); return Task.CompletedTask; }
+    }
 
     private sealed class ModelStore(ConcurrentDictionary<string, ModelDescriptor> d) : IModelStore
     {

@@ -30,7 +30,8 @@ public class HubDownloadLiveTests
 
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { ContentRootPath = dataDirectory });
         builder.Logging.ClearProviders();
-        builder.Services.AddNetCoreAI(o => o.DataDirectory = dataDirectory).AddGgufBackend();
+        builder.Services.AddNetCoreAI(o => o.DataDirectory = dataDirectory).AddGgufBackend()
+            .AddSqliteStorage($"Data Source={Path.Combine(dataDirectory, "netcoreai.db")};Pooling=False");
 
         using var host = builder.Build();
         await host.StartAsync(TestContext.Current.CancellationToken);
@@ -81,7 +82,6 @@ public class HubDownloadLiveTests
         finally
         {
             await host.StopAsync(TestContext.Current.CancellationToken);
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             try
             {
                 Directory.Delete(dataDirectory, recursive: true);

@@ -27,6 +27,8 @@ public interface IMetadataStore
     IKnowledgeStore Knowledge { get; }
 
     IJobStore Jobs { get; }
+
+    IToolStore Tools { get; }
 }
 
 public interface IModelStore
@@ -105,6 +107,18 @@ public interface IKnowledgeStore
 }
 
 /// <summary>Persistence for background jobs, so progress and failures survive a restart.</summary>
+/// <summary>Saved tool definitions. A tool exists because somebody saved one, never because discovery saw it.</summary>
+public interface IToolStore
+{
+    Task<IReadOnlyList<ToolDefinition>> ListAsync(CancellationToken cancellationToken = default);
+    Task<ToolDefinition?> GetAsync(string id, CancellationToken cancellationToken = default);
+
+    /// <summary>Looks a tool up by the name the model calls, which must be unique across the host.</summary>
+    Task<ToolDefinition?> GetByNameAsync(string name, CancellationToken cancellationToken = default);
+    Task UpsertAsync(ToolDefinition tool, CancellationToken cancellationToken = default);
+    Task DeleteAsync(string id, CancellationToken cancellationToken = default);
+}
+
 public interface IJobStore
 {
     Task<IReadOnlyList<JobRecord>> ListAsync(string? targetId = null, CancellationToken cancellationToken = default);

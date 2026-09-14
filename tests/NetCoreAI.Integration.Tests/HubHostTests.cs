@@ -31,7 +31,7 @@ public sealed class HubHostTests : IAsyncLifetime
 
             // Offline keeps the suite from touching Hugging Face; the online paths are unit-tested.
             o.Network.OfflineMode = true;
-        }).AddGgufBackend();
+        }).AddGgufBackend().AddSqliteStorage($"Data Source={Path.Combine(_dataDir, "netcoreai.db")};Pooling=False");
 
         _app = builder.Build();
         _app.MapNetCoreAI();
@@ -43,7 +43,6 @@ public sealed class HubHostTests : IAsyncLifetime
     {
         await _app.StopAsync();
         await _app.DisposeAsync();
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         try
         {
             Directory.Delete(_dataDir, true);

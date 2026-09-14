@@ -45,7 +45,11 @@ public class KnowledgeAcceptanceTests : IAsyncDisposable
         builder.Logging.ClearProviders();
         builder.Services.AddNetCoreAI(o => o.DataDirectory = _dataDirectory)
             .AddGgufBackend()
-            .AddDocumentExtractors();
+            .AddDocumentExtractors()
+            // Pooling off: a pooled SQLite connection keeps the database file open after the test that
+            // made it is done, and the process-global ClearAllPools() that used to compensate disposed
+            // connections belonging to other test classes running in parallel.
+            .AddSqliteStorage($"Data Source={Path.Combine(_dataDirectory, "netcoreai.db")};Pooling=False");
 
         _host = builder.Build();
         await _host.StartAsync(ct);
@@ -152,7 +156,8 @@ public class KnowledgeAcceptanceTests : IAsyncDisposable
         _dataDirectory = Path.Combine(Path.GetTempPath(), "netcoreai-tests", Guid.NewGuid().ToString("N"));
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { ContentRootPath = Directory.CreateDirectory(_dataDirectory).FullName });
         builder.Logging.ClearProviders();
-        builder.Services.AddNetCoreAI(o => o.DataDirectory = _dataDirectory).AddGgufBackend();
+        builder.Services.AddNetCoreAI(o => o.DataDirectory = _dataDirectory).AddGgufBackend()
+            .AddSqliteStorage($"Data Source={Path.Combine(_dataDirectory, "netcoreai.db")};Pooling=False");
 
         _host = builder.Build();
         await _host.StartAsync(ct);
@@ -223,7 +228,6 @@ public class KnowledgeAcceptanceTests : IAsyncDisposable
             _host.Dispose();
         }
 
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         try
         {
             if (Directory.Exists(_dataDirectory))

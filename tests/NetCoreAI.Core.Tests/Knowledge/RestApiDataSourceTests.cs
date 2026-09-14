@@ -244,7 +244,6 @@ public class RestApiDataSourceTests : IAsyncDisposable
             _host.Dispose();
         }
 
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         GC.SuppressFinalize(this);
     }
 }

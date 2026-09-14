@@ -434,7 +434,6 @@ public class KnowledgeServiceTests : IAsyncDisposable
             _host.Dispose();
         }
 
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         try
         {
             if (Directory.Exists(_dataDirectory))

@@ -43,7 +43,6 @@ public class SqlAndScheduleTests : IAsyncDisposable
             await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
         }
 
-        SqliteConnection.ClearAllPools();
         return _host.Services.GetServices<IDataSource>().Single(s => s.Type == SqlDataSource.TypeName);
     }
 
@@ -280,7 +279,6 @@ public class SqlAndScheduleTests : IAsyncDisposable
             _host.Dispose();
         }
 
-        SqliteConnection.ClearAllPools();
         try
         {
             if (Directory.Exists(_dataDirectory))

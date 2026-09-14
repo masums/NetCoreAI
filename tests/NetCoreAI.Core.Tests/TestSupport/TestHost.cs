@@ -37,6 +37,11 @@ public static class TestHost
         });
         // Deterministic, instant hardware for unit tests (the real probe shells out to nvidia-smi/PowerShell).
         builder.Services.AddSingleton<IHardwareProbe>(new FakeHardwareProbe());
+        // Pooling off, not because tests are special but because a pooled SQLite connection keeps the file
+        // open after the test that made it is done. The alternative — SqliteConnection.ClearAllPools() — is
+        // process-global, so a class tidying up disposed connections belonging to other classes running in
+        // parallel and failed them with ObjectDisposedException.
+        ai.AddSqliteStorage($"Data Source={Path.Combine(dataDir, "netcoreai.db")};Pooling=False");
         configure?.Invoke(ai);
         var host = builder.Build();
         await host.StartAsync();

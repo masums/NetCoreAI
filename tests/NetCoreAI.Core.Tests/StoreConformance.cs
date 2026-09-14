@@ -61,7 +61,6 @@ internal static class SqliteConnectionCleanup
             return;
         }
 
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         foreach (var f in new[] { path, path + "-wal", path + "-shm" })
         {
             try { File.Delete(f); } catch (IOException) { }

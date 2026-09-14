@@ -23,6 +23,7 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
     public DbSet<DataSourceRow> DataSources => Set<DataSourceRow>();
     public DbSet<DocumentRow> Documents => Set<DocumentRow>();
     public DbSet<JobRow> Jobs => Set<JobRow>();
+    public DbSet<ToolRow> Tools => Set<ToolRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -72,6 +73,14 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
             e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.TargetId, x.CreatedAtTicks });
             e.HasIndex(x => x.State);
+        });
+        modelBuilder.Entity<ToolRow>(e =>
+        {
+            e.ToTable("Tools");
+            e.HasKey(x => x.Id);
+
+            // The model calls a tool by name, so two tools sharing one would make a call ambiguous.
+            e.HasIndex(x => x.Name).IsUnique();
         });
     }
 }
@@ -169,6 +178,14 @@ public sealed class DocumentRow
     /// <summary>SHA-256 of the extracted text: how re-ingest decides a document has not changed.</summary>
     public string? ContentHash { get; set; }
     public long IngestedAtTicks { get; set; }
+    public string Json { get; set; } = "";
+}
+
+public sealed class ToolRow
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Kind { get; set; } = "";
     public string Json { get; set; } = "";
 }
 

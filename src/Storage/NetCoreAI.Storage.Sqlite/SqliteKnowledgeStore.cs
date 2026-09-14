@@ -210,3 +210,59 @@ internal sealed class SqliteJobStore(IDbContextFactory<NetCoreAIDbContext> facto
             .ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
     }
 }
+
+/// <summary>
+/// Saved tool definitions.
+/// </summary>
+/// <remarks>
+/// The name is a column rather than only a JSON field because it is looked up on every tool call and has
+/// to be unique: two tools sharing a name would make a model's call ambiguous, and the store is the only
+/// place that can refuse it.
+/// </remarks>
+internal sealed class SqliteToolStore(IDbContextFactory<NetCoreAIDbContext> factory) : IToolStore
+{
+    public async Task<IReadOnlyList<ToolDefinition>> ListAsync(CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await db.Tools.AsNoTracking().OrderBy(t => t.Name).Select(t => t.Json).ToListAsync(cancellationToken).ConfigureAwait(false);
+        return [.. rows.Select(SqliteMetadataStore.Deserialize<ToolDefinition>)];
+    }
+
+    public async Task<ToolDefinition?> GetAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var json = await db.Tools.AsNoTracking().Where(t => t.Id == id).Select(t => t.Json).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        return json is null ? null : SqliteMetadataStore.Deserialize<ToolDefinition>(json);
+    }
+
+    public async Task<ToolDefinition?> GetByNameAsync(string name, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var json = await db.Tools.AsNoTracking().Where(t => t.Name == name).Select(t => t.Json).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        return json is null ? null : SqliteMetadataStore.Deserialize<ToolDefinition>(json);
+    }
+
+    public async Task UpsertAsync(ToolDefinition tool, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(tool);
+
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var row = await db.Tools.FindAsync([tool.Id], cancellationToken).ConfigureAwait(false);
+        if (row is null)
+        {
+            row = new ToolRow { Id = tool.Id };
+            db.Tools.Add(row);
+        }
+
+        row.Name = tool.Name;
+        row.Kind = tool.Kind.ToString();
+        row.Json = SqliteMetadataStore.Serialize(tool);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task DeleteAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await db.Tools.Where(t => t.Id == id).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+    }
+}

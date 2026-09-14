@@ -243,7 +243,7 @@ public class OnnxModelTests
         {
             o.DataDirectory = dataDirectory;
             o.Models.DefaultContextSize = 1024;
-        }).AddOnnxBackend();
+        }).AddOnnxBackend().AddSqliteStorage($"Data Source={Path.Combine(dataDirectory, "netcoreai.db")};Pooling=False");
 
         using var host = builder.Build();
         await host.StartAsync(TestContext.Current.CancellationToken);

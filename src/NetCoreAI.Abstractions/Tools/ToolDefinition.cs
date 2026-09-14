@@ -210,6 +210,18 @@ public sealed record DiscoveredEndpoint
     /// <summary>Stable across restarts for the same route and method, so a saved tool can be matched back.</summary>
     public required string Id { get; init; }
 
+    /// <summary>
+    /// The id for a method and route.
+    /// </summary>
+    /// <remarks>
+    /// Derived from the route rather than from the handler's name, so a tool saved yesterday still matches
+    /// its endpoint after the handler is renamed or moved to another file. Public because matching a saved
+    /// tool back to a live endpoint is something callers outside discovery need to do too.
+    /// </remarks>
+    public static string IdFor(string method, string route) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes($"{(method ?? string.Empty).ToUpperInvariant()} {route}")))[..16].ToLowerInvariant();
+
     public required string Method { get; init; }
 
     public required string Route { get; init; }

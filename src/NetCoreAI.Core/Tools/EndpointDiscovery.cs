@@ -83,7 +83,7 @@ internal sealed class EndpointDiscoveryService(
 
         return new DiscoveredEndpoint
         {
-            Id = IdFor(method, route),
+            Id = DiscoveredEndpoint.IdFor(method, route),
             Method = method,
             Route = route,
             DisplayName = endpoint.DisplayName,
@@ -98,14 +98,6 @@ internal sealed class EndpointDiscoveryService(
             Unsuitable = unsuitable,
         };
     }
-
-    /// <summary>
-    /// Stable for a given method and route, so a tool saved yesterday still matches its endpoint today.
-    /// Not the display name, which changes whenever the handler is renamed or moved.
-    /// </summary>
-    internal static string IdFor(string method, string route) =>
-        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
-            System.Text.Encoding.UTF8.GetBytes($"{method.ToUpperInvariant()} {route}")))[..16].ToLowerInvariant();
 
     /// <summary>
     /// A tool name from the route: <c>GET /api/orders/{id}</c> becomes <c>get_api_orders_by_id</c>.

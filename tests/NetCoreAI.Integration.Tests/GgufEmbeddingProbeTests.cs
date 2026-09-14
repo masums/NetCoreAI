@@ -97,7 +97,8 @@ public class GgufEmbeddingProbeTests
         var dataDirectory = Path.Combine(Path.GetTempPath(), "netcoreai-tests", Guid.NewGuid().ToString("N"));
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { ContentRootPath = Directory.CreateDirectory(dataDirectory).FullName });
         builder.Logging.ClearProviders();
-        builder.Services.AddNetCoreAI(o => o.DataDirectory = dataDirectory).AddGgufBackend();
+        builder.Services.AddNetCoreAI(o => o.DataDirectory = dataDirectory).AddGgufBackend()
+            .AddSqliteStorage($"Data Source={Path.Combine(dataDirectory, "netcoreai.db")};Pooling=False");
 
         using var host = builder.Build();
         await host.StartAsync(ct);
@@ -125,7 +126,6 @@ public class GgufEmbeddingProbeTests
         finally
         {
             await host.StopAsync(ct);
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             try
             {
                 Directory.Delete(dataDirectory, recursive: true);

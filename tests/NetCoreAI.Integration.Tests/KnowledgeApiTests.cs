@@ -30,7 +30,11 @@ public sealed class KnowledgeApiTests : IAsyncLifetime
         {
             o.DataDirectory = _dataDir;
             o.Dashboard.AllowAnonymous = true;
-        });
+        })
+            // Pooling off: a pooled SQLite connection keeps the database file open after the test
+            // that made it is done, and the process-global ClearAllPools() that used to compensate
+            // disposed connections belonging to other test classes running in parallel.
+            .AddSqliteStorage($"Data Source={Path.Combine(_dataDir, "netcoreai.db")};Pooling=False");
 
         _app = builder.Build();
         _app.MapNetCoreAI();
@@ -42,7 +46,6 @@ public sealed class KnowledgeApiTests : IAsyncLifetime
     {
         await _app.StopAsync();
         await _app.DisposeAsync();
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         try
         {
             Directory.Delete(_dataDir, true);
