@@ -204,6 +204,29 @@ public sealed record ToolDefinition
     public IEnumerable<ToolParameter> ModelParameters => Parameters.Where(p => p.IsModelSupplied);
 }
 
+/// <summary>
+/// Who a tool call is being made on behalf of, and what the host knows about the request that caused it.
+/// </summary>
+/// <remarks>
+/// A tool never runs with more authority than the person who caused it to run, so the caller travels with
+/// the call rather than being looked up inside it. The model contributes arguments and nothing else: every
+/// value in here comes from the host.
+/// </remarks>
+public sealed record ToolCallContext
+{
+    /// <summary>The caller. Null means a system call with no user behind it.</summary>
+    public System.Security.Claims.ClaimsPrincipal? User { get; init; }
+
+    /// <summary>Values the host attached to the run, available to parameters bound from request metadata.</summary>
+    public IReadOnlyDictionary<string, string>? RequestMetadata { get; init; }
+
+    /// <summary>Where this host answers its own requests, for loopback invocation.</summary>
+    public Uri? BaseAddress { get; init; }
+
+    /// <summary>The caller's own Authorization header, forwarded when the tool says to.</summary>
+    public string? AuthorizationHeader { get; init; }
+}
+
 /// <summary>An endpoint discovery found, before anyone has decided to make a tool of it.</summary>
 public sealed record DiscoveredEndpoint
 {

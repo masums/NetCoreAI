@@ -118,6 +118,12 @@ public static class NetCoreAIServiceCollectionExtensions
         // Tools: discovery only reads the route table, so it costs nothing until something asks.
         services.TryAddSingleton<NetCoreAI.Tools.IEndpointDiscovery, NetCoreAI.Tools.EndpointDiscoveryService>();
         services.TryAddSingleton<NetCoreAI.Tools.IToolService, NetCoreAI.Tools.ToolService>();
+        services.TryAddSingleton<NetCoreAI.Tools.IToolInvoker, NetCoreAI.Tools.ToolInvoker>();
+        services.TryAddSingleton<NetCoreAI.Tools.IToolRegistry, NetCoreAI.Tools.ToolRegistry>();
+
+        // Named, so a host can give tool traffic its own handlers — a proxy, a client certificate, a
+        // retry policy — without touching the clients the model providers use.
+        services.AddHttpClient(NetCoreAI.Tools.ToolInvoker.HttpClientName);
 
         // Live traffic for the overview page, and per-call cost from connection pricing.
         services.TryAddSingleton<IUsageTracker, UsageTracker>();

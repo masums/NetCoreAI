@@ -123,7 +123,7 @@ Not a product phase, but required before Phase 1 can start.
 - [x] Import external OpenAPI 3.x specs — *JSON documents; a YAML one is refused with a message saying to convert it, rather than pulling a YAML parser into the package every host references*
 - [x] Manual tool definition (URL template + JSON schema) — *`POST /api/tools` takes a definition directly; the designer UI for it lands with WP3.2*
 - [x] Resolve Open Question #4 (in-process tool invocation strategy) before building invocation modes — *ADR-0004: opt-in only, through the real pipeline with the caller's identity; HTTP loopback is the default*
-- [ ] Tool definition editor (§7.6.2): `AIFunction` metadata generation, name/description/param docs, hide/lock parameters (e.g. `tenantId` from claims), response field mapping + truncation, invocation mode (in-process vs HTTP), auth propagation, safety flags (read-only vs side-effecting + confirmation policy)
+- [x] Tool definition editor (§7.6.2): `AIFunction` metadata generation, name/description/param docs, hide/lock parameters (e.g. `tenantId` from claims), response field mapping + truncation, invocation mode (in-process vs HTTP), auth propagation, safety flags (read-only vs side-effecting + confirmation policy) — *registry, binding and HTTP invocation done; in-process invocation and the designer UI land next*
 - [ ] Code-defined tools (§7.6.3): `[AITool]` attribute, `services.AddAITool<T>()`, auto-discovery as read-only in designer
 - [ ] Tool testing panel (§7.6.4): manual params or model-generated from sample prompt, request/response/latency/errors
 
@@ -139,7 +139,7 @@ Not a product phase, but required before Phase 1 can start.
 - [ ] HTTP API (§7.8.2): `POST /netcoreai/api/agents/{id}/run`, `.../run/stream` (SSE), sessions CRUD, feedback endpoint
 - [ ] API keys: scopes (per agent/KB), rate limits, IP allow-list, dashboard management
 - [ ] OpenAPI document for the NetCoreAI API itself
-- [ ] Identity/security invariant: tool invocation always runs under caller identity unless explicitly configured; model can never set identity-bearing params
+- [x] Identity/security invariant: tool invocation always runs under caller identity unless explicitly configured; model can never set identity-bearing params — *two defences, both mutation-tested: a locked parameter is absent from the schema, and the binder ignores one the model sends anyway*
 - [ ] OpenTelemetry coverage extended to tool calls and agent runs (GenAI semantic conventions)
 - [ ] `GET/POST/PUT/DELETE /api/tools`, `/api/tools/discover`, `/api/tools/import-openapi`, `/api/tools/{id}/test`
 - [ ] `GET/POST/PUT/DELETE /api/agents`, `/api/agents/{id}/run(/stream)`, `/api/agents/{id}/runs`

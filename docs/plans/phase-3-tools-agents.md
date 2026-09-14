@@ -20,7 +20,7 @@ Abstractions added: `ToolDefinition`, `IToolProvider`, `[AITool]`, `AgentDefinit
 ### WP3.1 Endpoint discovery + ADR-0004 — done
 `EndpointDiscoveryService` reads `EndpointDataSource` (route pattern, methods, parameter metadata from ApiExplorer / endpoint metadata, authorization metadata, XML doc summaries via the `Microsoft.AspNetCore.OpenApi` document if registered). `GET /api/tools/discover`. Import external OpenAPI 3.x → `OpenApi` kind tools. Read with `System.Text.Json` rather than `Microsoft.OpenApi.Readers`: only paths, operations, parameters and the body shape matter here, and pulling a full parser plus its YAML dependency into the package every host references is a real cost for one import feature. YAML documents are refused with a message saying to convert them. Manual definition (URL template + JSON schema).
 
-### WP3.2 Tool definitions + registry
+### WP3.2 Tool definitions + registry — registry, parameter binding and HTTP invocation done; in-process invocation outstanding
 `ToolDefinition` entity; editor generates `AIFunction` metadata (name, description, parameter docs/required/enums/defaults from schema); locked/hidden params bound to claim type, request metadata or static; response mapping (JSON-path select, max bytes, truncation strategy); invocation mode (InProcess per ADR-0004 / HTTP loopback / HTTP external); auth propagation (forward caller bearer/cookie, or encrypted service credential); safety flags (ReadOnly vs SideEffecting + confirmation policy Auto / AskUser / AdminOnly). `ToolRegistry` builds `AIFunction`s per request with the caller's `ClaimsPrincipal` captured in the closure. The model never sees locked params (invariant test).
 
 ### WP3.3 Code-defined tools
