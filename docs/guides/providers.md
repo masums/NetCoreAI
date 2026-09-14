@@ -73,3 +73,25 @@ Point a model at a folder rather than a file. Two layouts are recognised, and th
 ## Writing a provider
 
 Implement `IModelProvider`, plus `IConnectionAwareProvider` for remote services or derive from `RemoteModelProviderBase`. Then add an `Add{Name}Backend()` extension on `NetCoreAIBuilder`. Reference `NetCoreAI.Conformance` and derive from the provider suite to prove the contract. No change to Core or the Dashboard is needed.
+
+## Google Gemini
+
+Gemini serves an OpenAI-compatible endpoint, so it is added as an OpenAI-compatible connection rather than through a package of its own:
+
+```
+Base URL   https://generativelanguage.googleapis.com/v1beta/openai
+Key        an AI Studio API key
+Model      gemini-flash-latest, gemini-2.5-pro, …
+```
+
+Chat, streaming and embeddings work. **Tool-calling agents do not**, and the reason is worth knowing before you build one.
+
+Gemini returns a `thought_signature` inside each tool call and requires it to be sent back on the next turn — the request that carries the tool's result. `Microsoft.Extensions.AI`'s OpenAI adapter maps responses onto its own types and drops that vendor extension, so the follow-up is refused:
+
+```
+Function call is missing a thought_signature in functionCall parts.
+```
+
+The first half works: Gemini decides to call the tool, NetCoreAI runs it. It is continuing the conversation afterwards that fails, and every currently available Gemini model behaves this way. Until it is fixed upstream, use Gemini for chat and retrieval, and another provider for agents with tools.
+
+`GeminiToolLimitationTests` checks this on every run with a key configured, and **fails when the limitation stops being true** — so the workaround is removed when the world changes rather than outliving the problem.
