@@ -97,11 +97,16 @@ else
         <section class="card">
             <h2>Providers</h2>
             <label><input name="remoteProvidersEnabled" type="checkbox" checked="@_s.RemoteProvidersEnabled" /> Remote providers enabled (Ollama, OpenAI-compatible, Anthropic…)</label>
-            <fieldset>
-                <legend>Disabled providers</legend>
+            @* Checked means on, the same as every other checkbox on this page. It used to mean the
+               opposite — the boxes listed providers to disable, under a legend nobody reads while
+               looking straight at a provider name and a tick. Ticking all four to "turn everything on"
+               turned everything off, and the Providers page then said no provider package was
+               registered, which sounds like a missing NuGet reference rather than a setting. *@
+            <fieldset data-all-providers="@string.Join(',', Providers.All.Select(p => p.Id))">
+                <legend>Enabled providers</legend>
                 @foreach (var p in Providers.All)
                 {
-                    <label class="inline"><input type="checkbox" name="disabledProviders" value="@p.Id" checked="@_s.DisabledProviders.Contains(p.Id, StringComparer.OrdinalIgnoreCase)" /> @p.DisplayName</label>
+                    <label class="inline"><input type="checkbox" name="enabledProviders" value="@p.Id" checked="@(!_s.DisabledProviders.Contains(p.Id, StringComparer.OrdinalIgnoreCase))" /> @p.DisplayName</label>
                 }
             </fieldset>
         </section>

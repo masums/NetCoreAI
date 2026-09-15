@@ -47,15 +47,24 @@
     else
     {
         <form id="connection-form" class="form" data-api="providers/connections">
+            @* One list rather than a provider dropdown that has to be answered before the service
+               appears in a second one. Nobody sets out to add "an OpenAI-compatible provider"; they set
+               out to add Gemini, and a name that is only reachable after guessing the right package
+               reads as a service this framework does not support. The package is still visible, as the
+               group each service sits under, because it is what gets stored and what the docs name. *@
             <label>Provider
-                <select name="providerId" required>
+                <select name="service" required>
                     @foreach (var p in _remoteProviders)
                     {
-                        <option value="@p.Id">@p.DisplayName</option>
+                        <optgroup label="@p.DisplayName">
+                            @foreach (var preset in p.Presets)
+                            {
+                                <option value="@(p.Id + "|" + preset.Id)">@preset.DisplayName</option>
+                            }
+                        </optgroup>
                     }
                 </select>
             </label>
-            <label>Preset <select name="preset"></select></label>
             <label>Name <input name="name" placeholder="e.g. OpenAI-prod" required /></label>
             <label>Base URL <input name="baseUrl" placeholder="filled from preset" /></label>
             <label>API key / token <input name="secret" type="password" autocomplete="off" placeholder="stored encrypted" /></label>

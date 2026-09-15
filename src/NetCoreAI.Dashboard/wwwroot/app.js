@@ -1284,14 +1284,17 @@
   const connForm = $('#connection-form');
   if (connForm) {
     const presets = JSON.parse($('#presets-json').textContent || '{}');
-    const providerSel = connForm.elements.providerId, presetSel = connForm.elements.preset, baseUrl = connForm.elements.baseUrl, secret = connForm.elements.secret;
-    function fillPresets() {
-      const list = presets[providerSel.value] || [];
-      presetSel.innerHTML = list.map((p) => `<option value="${esc(p.id)}">${esc(p.displayName)}</option>`).join('');
-      applyPreset();
+    const serviceSel = connForm.elements.service, baseUrl = connForm.elements.baseUrl, secret = connForm.elements.secret;
+
+    // Each option carries both halves: which backend package handles it, and which preset of that
+    // package it is. The grouping is what the reader sees; this is what gets stored.
+    function chosen() {
+      const [providerId, presetId] = (serviceSel.value || '').split('|');
+      return { providerId, presetId, preset: (presets[providerId] || []).find((x) => x.id === presetId) };
     }
+
     function applyPreset() {
-      const p = (presets[providerSel.value] || []).find((x) => x.id === presetSel.value);
+      const p = chosen().preset;
       if (!p) return;
       baseUrl.placeholder = p.defaultBaseUrl || 'https://…/v1';
       baseUrl.value = p.defaultBaseUrl || '';
@@ -1300,16 +1303,16 @@
       $$('[data-setting]', connForm).forEach((el) => { el.hidden = !(p.requiredSettings || []).includes(el.dataset.setting); });
       if (!connForm.elements.name.value) connForm.elements.name.value = p.displayName;
     }
-    providerSel.addEventListener('change', fillPresets);
-    presetSel.addEventListener('change', applyPreset);
-    fillPresets();
+    serviceSel.addEventListener('change', applyPreset);
+    applyPreset();
     connForm.addEventListener('submit', (ev) => {
       ev.preventDefault();
       const d = formData(connForm);
       const settings = {};
       for (const k of Object.keys(d)) if (k.startsWith('setting:') && d[k]) settings[k.slice(8)] = d[k];
       guarded(async () => {
-        const c = await call('POST', 'providers/connections', { name: d.name, providerId: d.providerId, preset: d.preset, baseUrl: d.baseUrl || null, secret: d.secret || null, settings });
+        const { providerId, presetId } = chosen();
+        const c = await call('POST', 'providers/connections', { name: d.name, providerId, preset: presetId, baseUrl: d.baseUrl || null, secret: d.secret || null, settings });
         toast(`Saved "${c.name}". Testing…`);
         const t = await call('POST', `providers/connections/${encodeURIComponent(c.id)}/test`);
         if (t.success) { await call('POST', `providers/connections/${encodeURIComponent(c.id)}/models`); }
@@ -1330,7 +1333,12 @@
       memoryBudgetBytes: d.memoryBudgetBytes || 0, storageQuotaWarningBytes: d.storageQuotaWarningBytes || 0,
       telemetryEnabled: !!d.telemetryEnabled, executionProvider: d.executionProvider, threads: d.threads || 0, defaultConcurrency: d.defaultConcurrency,
       offlineMode: !!d.offlineMode, huggingFaceEndpoint: d.huggingFaceEndpoint, proxyUrl: d.proxyUrl || '', bandwidthLimitBytesPerSecond: d.bandwidthLimitBytesPerSecond || 0,
-      remoteProvidersEnabled: !!d.remoteProvidersEnabled, disabledProviders: d.disabledProviders || [],
+      remoteProvidersEnabled: !!d.remoteProvidersEnabled,
+
+      // The boxes say which providers are on; the API stores which are off. Inverted here rather than
+      // shown inverted to the reader.
+      disabledProviders: ($('[data-all-providers]')?.dataset.allProviders || '').split(',')
+        .filter((id) => id && !(d.enabledProviders || []).includes(id)),
     };
     if (d.huggingFaceToken) body.huggingFaceToken = d.huggingFaceToken.trim().toLowerCase() === 'clear' ? '' : d.huggingFaceToken.trim();
     guarded(async () => { await call('PUT', 'settings', body); toast('Settings saved.'); settingsForm.elements.huggingFaceToken.value = ''; setTimeout(() => location.reload(), 800); }, settingsForm.querySelector('button[type=submit]'));
