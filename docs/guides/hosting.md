@@ -45,6 +45,51 @@ and are re-indexed. After 1.0 this becomes a real migration; the schema is not f
 
 Back the database up before upgrading if any of that would hurt. It is one file.
 
+### Alerts
+
+NetCoreAI watches the three things that go wrong quietly: free disk running out, a model that will not
+load, and a run failure rate that has climbed. None of them stops the host, all of them are noticed late,
+and the first sign is usually somebody saying it has been broken since Tuesday.
+
+```jsonc
+"NetCoreAI": {
+  "Alerts": {
+    "Enabled": true,
+    "WebhookUrl": "https://hooks.example.com/netcoreai",
+    "CheckInterval": "00:05:00",
+    "ResendAfter": "06:00:00",
+    "ErrorRatePercent": 25,
+    "ErrorRateMinimumRuns": 20
+  }
+}
+```
+
+Alerts always go to the log, at a level matching their severity, so a host that has configured nowhere to
+send them still finds them where it is already looking. A webhook receives each one as JSON. For anything
+else — your mailer, your incident tool, a chat channel — wire a sink:
+
+```csharp
+builder.Services.AddNetCoreAI()
+    .AddAlertSink((alert, ct) => email.SendAsync("ops@example.com", alert.Title, alert.Detail ?? "", ct));
+```
+
+There is no `IEmailSender` integration on purpose: that interface lives in ASP.NET Core Identity, and
+taking a dependency on Identity to reach it would put it in every host that references NetCoreAI.
+
+Most of the work here is declining to mention things twice. **The same condition alerts once per
+`ResendAfter`** — a full disk is still full a minute later, and an alert that arrives every minute is one
+nobody reads. **An error rate is ignored until `ErrorRateMinimumRuns` have happened**, because one failed
+run out of one is 100% and paging somebody for it is how alerting gets switched off. The rate is measured
+over twice the check interval, so a spike straddling two checks is not missed.
+
+`POST /api/alerts/test` sends a test alert, which is never suppressed as a repeat — the one alert that
+must always arrive is the one you sent to find out whether they arrive. `GET /api/alerts` lists what has
+been raised recently, whether or not a sink took it, so "why did nobody tell me" can be answered with "we
+did, at 04:12" rather than with a guess about the webhook.
+
+Webhook traffic goes through the same egress policy as everything else, so a host running under
+[data residency](#air-gapped-and-restricted-networks) will not find its alerts leaving.
+
 ### Usage and run history
 
 The **Usage** page shows what has been run over a period — runs, tokens, estimated cost, median run time,

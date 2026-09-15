@@ -162,7 +162,7 @@ Not a product phase, but required before Phase 1 can start.
 - [x] Data residency switch: block remote providers/outbound calls except allow-listed mirrors — *`Network.OfflineMode` + `AllowedHosts`; one allow-list definition shared by every client and the provider check, now covering tool invocation and the built-in fetch tool as well as hub browsing and downloads*
 - [x] Usage analytics: token accounting per agent/model/user — *read from the run traces themselves rather than a second accounting table; runs whose provider reported no usage are counted separately instead of as zero*
 - [x] Run history browser with full traces, filters, export — *filter by agent, model, person, outcome and period; CSV export is formula-safe. Free-text search covers the page you are on, not the whole history — that wants a full-text index*
-- [ ] Alerts (disk low, load failure, error-rate spike) via host `IEmailSender`/webhook
+- [x] Alerts (disk low, load failure, error-rate spike) via host `IEmailSender`/webhook — *a log sink everybody gets, a webhook sink, and `AddAlertSink(lambda)` for a host's own mailer rather than a dependency on ASP.NET Core Identity for one interface; the same condition alerts once per quiet period, and an error rate needs a minimum number of runs before it means anything*
 - [ ] OpenAI-compatible `POST /netcoreai/v1/chat/completions` + `/v1/embeddings`
 - [ ] Embeddable chat widget (Razor component/JS snippet, CSS-variable theming)
 - [ ] Compare mode (§7.4.2): 2–3 models side by side

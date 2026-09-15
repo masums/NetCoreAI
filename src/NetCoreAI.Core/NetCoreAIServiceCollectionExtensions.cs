@@ -180,6 +180,28 @@ public static class NetCoreAIServiceCollectionExtensions
                 }
             });
 
+        // Alerts: a log sink everybody gets, a webhook sink that does nothing until a URL is set, and a
+        // monitor watching the three things that go wrong quietly.
+        services.TryAddSingleton<NetCoreAI.Alerts.IAlertService, NetCoreAI.Alerts.AlertService>();
+        services.TryAddEnumerable(
+        [
+            ServiceDescriptor.Singleton<NetCoreAI.Alerts.IAlertSink, NetCoreAI.Alerts.LogAlertSink>(),
+            ServiceDescriptor.Singleton<NetCoreAI.Alerts.IAlertSink, NetCoreAI.Alerts.WebhookAlertSink>(),
+        ]);
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, NetCoreAI.Alerts.AlertMonitor>());
+        services.AddHttpClient(NetCoreAI.Alerts.WebhookAlertSink.HttpClientName).EnforceOfflineMode();
+        services.AddOptions<NetCoreAI.Alerts.AlertOptions>()
+            .Configure<IOptions<NetCoreAIOptions>>((alerts, root) =>
+            {
+                alerts.Enabled = root.Value.Alerts.Enabled;
+                alerts.WebhookUrl = root.Value.Alerts.WebhookUrl;
+                alerts.CheckInterval = root.Value.Alerts.CheckInterval;
+                alerts.ResendAfter = root.Value.Alerts.ResendAfter;
+                alerts.LowDiskBytes = root.Value.Alerts.LowDiskBytes;
+                alerts.ErrorRatePercent = root.Value.Alerts.ErrorRatePercent;
+                alerts.ErrorRateMinimumRuns = root.Value.Alerts.ErrorRateMinimumRuns;
+            });
+
         // Who changed what, and the sweep that stops the audit and run tables growing forever.
         services.TryAddSingleton<NetCoreAI.Security.IAuditLog, NetCoreAI.Security.AuditLog>();
         services.AddOptions<NetCoreAI.Security.AuditOptions>()
