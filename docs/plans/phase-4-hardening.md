@@ -10,7 +10,16 @@
 ## Work packages (grouped; each independently shippable as 0.x minors)
 1. **Safetensors convert-on-import** — `IModelConverter`, converter package, Hub labels "runs natively / will be converted", job with progress.
 2. **Routing rules** — `RoutingPolicy` (prompt length, tool requirement, user role, cost/latency budgets) evaluated before `FallbackChatClient`.
-3. **Retrieval quality** — BM25 index (SQLite FTS5) + reciprocal rank fusion; cross-encoder re-ranker via ONNX (`bge-reranker-base`); KB evaluation (QA sets, hit rate, LLM-judge faithfulness).
+3. **Retrieval quality** — hybrid search done; the cross-encoder re-ranker and KB evaluation outstanding.
+
+Hybrid is the default rather than an option, because choosing between the two is a worse default than
+having both: a vector search misses an exact token like an error code, and a keyword search misses a
+question phrased differently from the document. A store that cannot do keywords falls back to vectors, so
+the default works everywhere it lands. Fusion is on rank rather than score — a cosine similarity and a BM25
+score are different things measured differently, and normalising one onto the other invents a relationship
+that is not there. In SQLite the keyword index is FTS5 over the existing chunk text, kept in step by
+database triggers rather than by code that has to remember, and it applies the same access tags as the
+vector leg: an index that ignored them would be a way to read a restricted passage by guessing a word in it.
 4. **Guardrails** — done. Content rules, PII masking, injection heuristics, per-role tool allow-lists, token and cost budgets. Two deviations from the plan above, both deliberate: they sit in the agent run rather than in chat-client middleware, because the input check has to happen before retrieval and before the model is chosen, and the tool allow-list has to narrow the list before the pipeline is built rather than refuse a call after the model has spent one on it; and there is no `IAgentEventHandler` yet, so findings are carried in the run trace and on a counter instead. Everything is off by default, and `GuardrailAction.Ignore` means genuinely off — no scanning, no trace entries. Budgets are counted per process.
 5. **Versioning & publishing** — done. Agent versioning, tool groups and versioning, and the JSON bundle.
 

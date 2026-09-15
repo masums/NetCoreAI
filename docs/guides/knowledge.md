@@ -131,3 +131,49 @@ On the Knowledge page the same thing is **Upload files** under a base's document
 | GET | `/api/kb/{id}/jobs` | Ingestion history for this base |
 | GET | `/api/jobs`, `/api/jobs/{id}` | Background jobs, with per-item failures |
 | POST | `/api/jobs/{id}/cancel`, `/retry` | Stop or re-run a job |
+
+## Hybrid search
+
+Retrieval runs a vector search and a keyword search and fuses the two. This is the default, and there is a
+`Retrieval.Mode` of `Vector` or `Keyword` if you want only one.
+
+The two fail differently, which is the whole argument for having both:
+
+- A **vector** search finds text that *means* the same thing, and misses `ERR-4021` — nothing else means
+  the same as an error code. Or a part number, or a customer id.
+- A **keyword** search finds exact tokens, and misses "the login screen hangs" when the document says
+  "authentication times out".
+
+A store that cannot search by keyword falls back to vectors alone. Hybrid is a default, and a default has
+to work wherever it lands.
+
+### How the two are combined
+
+Reciprocal rank fusion: each passage scores `1/(60 + rank)` in each list it appears in, and the scores add
+up.
+
+**On rank, not on score.** A cosine similarity and a BM25 score are different things measured differently;
+normalising one onto the other invents a relationship that is not there. Rank is the only thing the two
+lists agree about.
+
+The effect is that a passage both searches liked moderately beats one that only a single search loved —
+and a passage only one search found still reaches the answer, further down. Each leg fetches three times
+the requested depth, because a passage ranked eighth by one and second by the other is exactly the one
+fusion exists to surface.
+
+`MinScore` applies to the vector leg, before fusion. A fused score is a rank sum rather than a similarity,
+and a threshold tuned against cosine distances means nothing against it.
+
+### The keyword index
+
+In SQLite it is FTS5 over the chunk text that is already stored — no second copy — kept in step by database
+triggers rather than by code that has to remember to update it. An index maintained by whichever path
+remembers is wrong after the first path that forgets.
+
+It applies the same access tags as the vector search. An index that ignored them would be a way to read a
+restricted passage by guessing a word in it.
+
+Queries are tokenised the way the index is: `AB-1234/X` becomes the phrase `"AB 1234 X"` rather than one
+glued token, because that is how the document was stored. Every term is quoted — partly so punctuation
+cannot be read as an FTS5 operator, and partly because a query is text somebody typed and must never become
+part of the expression evaluating it.

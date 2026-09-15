@@ -151,7 +151,7 @@ Not a product phase, but required before Phase 1 can start.
 - [ ] Resolve Open Question #1 (Safetensors converter distribution strategy)
 - [ ] Safetensors convert-on-import (§7.1.4): bundled converter → GGUF/ONNX at download time, Hub UI labels "runs natively" vs "will be converted"
 - [ ] Cost/latency-aware routing rules (route by prompt length, tool requirement, user role)
-- [ ] Hybrid search (BM25 + vector, reciprocal rank fusion)
+- [x] Hybrid search (BM25 + vector, reciprocal rank fusion) — *on by default, falling back to vectors when a store cannot do keywords. SQLite uses FTS5 kept in step by triggers rather than by code that has to remember; fusion is on rank because a cosine and a BM25 score are not comparable — see [docs/guides/knowledge.md](docs/guides/knowledge.md)*
 - [ ] Re-ranking with local cross-encoder model
 - [x] Guardrails (§7.7.3): input/output content rules, PII masking, prompt-injection heuristics, per-role tool allow-list, token/cost budgets — *all off by default; budgets are per process like the API key rate limiter, and the injection heuristics are a tripwire rather than a wall — see [docs/guides/guardrails.md](docs/guides/guardrails.md)*
 - [x] Agent versioning & publishing (§7.7.5): draft → published, rollback, changelog, environment export/import — *an agent nobody has published runs as it is edited; publishing once freezes that for good. Rollback publishes the old definition forward as a new version rather than deleting history. Switching an agent off does not need a publish — see [docs/guides/agents.md](docs/guides/agents.md)*

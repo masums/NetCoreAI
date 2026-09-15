@@ -89,8 +89,34 @@ public sealed record KnowledgeBase
 }
 
 /// <summary>What a retrieval should return.</summary>
+/// <summary>How a knowledge base is searched.</summary>
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<RetrievalMode>))]
+public enum RetrievalMode
+{
+    /// <summary>
+    /// Both, fused. The default, and what it falls back from when a store cannot do keywords.
+    /// </summary>
+    Hybrid,
+
+    /// <summary>Embeddings only: finds text that means the same thing, misses exact tokens.</summary>
+    Vector,
+
+    /// <summary>Words only: finds exact tokens, misses anything phrased differently.</summary>
+    Keyword,
+}
+
 public sealed record RetrievalOptions
 {
+    /// <summary>
+    /// Vector, keyword, or both fused.
+    /// </summary>
+    /// <remarks>
+    /// Hybrid by default. The two fail differently — a vector search misses <c>ERR-4021</c> because
+    /// nothing else means the same thing, and a keyword search misses "the login screen hangs" when the
+    /// document says "authentication times out" — and the fusion below is cheap enough that choosing
+    /// between them is a worse default than having both.
+    /// </remarks>
+    public RetrievalMode Mode { get; init; } = RetrievalMode.Hybrid;
     /// <summary>Chunks to retrieve before any filtering.</summary>
     public int TopK { get; init; } = 5;
 

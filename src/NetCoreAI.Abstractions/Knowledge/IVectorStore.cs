@@ -29,6 +29,32 @@ public sealed record VectorFilter
 /// Storage and similarity search for embeddings. One collection per knowledge base.
 /// Implementations: SQLite (default, zero-config), Postgres/pgvector, Qdrant.
 /// </summary>
+/// <summary>
+/// A store that can also find chunks by the words in them.
+/// </summary>
+/// <remarks>
+/// Optional: a store implements it if it can, and retrieval falls back to vectors alone when it cannot.
+/// Worth having because the two kinds of search fail differently — a vector search finds text that means
+/// the same thing and misses an exact token like <c>ERR-4021</c> or a part number, which is precisely what
+/// somebody typing that into a search box is looking for.
+/// </remarks>
+public interface IKeywordSearchable
+{
+    /// <summary>
+    /// Chunks matching the words in <paramref name="query"/>, best first.
+    /// </summary>
+    /// <remarks>
+    /// The score is the store's own and is not comparable with a vector similarity. Fusion works on the
+    /// ranks rather than the scores for exactly that reason.
+    /// </remarks>
+    Task<IReadOnlyList<VectorSearchResult>> SearchKeywordAsync(
+        string collection,
+        string query,
+        int topK,
+        VectorFilter? filter = null,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IVectorStore
 {
     string Id { get; }
