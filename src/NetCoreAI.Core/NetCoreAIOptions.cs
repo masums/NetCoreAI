@@ -34,6 +34,8 @@ public sealed class NetCoreAIOptions
     public StorageOptions Storage { get; set; } = new();
 
     public NetCoreAI.Security.AuditOptions Audit { get; set; } = new();
+
+    public NetCoreAI.Tenancy.TenancyOptions Tenancy { get; set; } = new();
 }
 
 /// <summary>What is kept, and for how long.</summary>

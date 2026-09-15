@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using NetCoreAI.Dashboard.Api;
 using NetCoreAI.Dashboard.Rendering;
 using NetCoreAI.Hub;
+using NetCoreAI.Tenancy;
 
 namespace NetCoreAI;
 
@@ -36,6 +37,10 @@ public static class NetCoreAIEndpointRouteBuilderExtensions
         var group = endpoints.MapGroup(path).WithGroupName("netcoreai");
 
         ApplyAuthorization(group, options.Dashboard);
+
+        // After authorization, so a tenant read from a claim has a claim to read. Everything under the
+        // group runs as the caller's tenant, or does not run.
+        group.UseTenancy();
 
         // Health is intentionally outside the authorization policy so load balancers can probe it.
         endpoints.MapHealthChecks(path + "/health", new HealthCheckOptions { ResponseWriter = HealthApi.WriteAsync }).AllowAnonymous();

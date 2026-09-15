@@ -27,7 +27,7 @@ internal sealed class SqliteKnowledgeStore(IDbContextFactory<NetCoreAIDbContext>
         ArgumentNullException.ThrowIfNull(knowledgeBase);
 
         await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        var row = await db.KnowledgeBases.FindAsync([knowledgeBase.Id], cancellationToken).ConfigureAwait(false);
+        var row = await db.KnowledgeBases.FindAsync([db.CurrentTenant, knowledgeBase.Id], cancellationToken).ConfigureAwait(false);
         if (row is null)
         {
             row = new KnowledgeBaseRow { Id = knowledgeBase.Id, CreatedAtTicks = knowledgeBase.CreatedAt.UtcTicks };
@@ -73,7 +73,7 @@ internal sealed class SqliteKnowledgeStore(IDbContextFactory<NetCoreAIDbContext>
         ArgumentNullException.ThrowIfNull(source);
 
         await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        var row = await db.DataSources.FindAsync([source.Id], cancellationToken).ConfigureAwait(false);
+        var row = await db.DataSources.FindAsync([db.CurrentTenant, source.Id], cancellationToken).ConfigureAwait(false);
         if (row is null)
         {
             row = new DataSourceRow { Id = source.Id, KnowledgeBaseId = source.KnowledgeBaseId };
@@ -130,7 +130,7 @@ internal sealed class SqliteKnowledgeStore(IDbContextFactory<NetCoreAIDbContext>
         ArgumentNullException.ThrowIfNull(document);
 
         await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        var row = await db.Documents.FindAsync([document.Id], cancellationToken).ConfigureAwait(false);
+        var row = await db.Documents.FindAsync([db.CurrentTenant, document.Id], cancellationToken).ConfigureAwait(false);
         if (row is null)
         {
             row = new DocumentRow { Id = document.Id, KnowledgeBaseId = document.KnowledgeBaseId };
@@ -180,7 +180,7 @@ internal sealed class SqliteJobStore(IDbContextFactory<NetCoreAIDbContext> facto
         ArgumentNullException.ThrowIfNull(job);
 
         await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        var row = await db.Jobs.FindAsync([job.Id], cancellationToken).ConfigureAwait(false);
+        var row = await db.Jobs.FindAsync([db.CurrentTenant, job.Id], cancellationToken).ConfigureAwait(false);
         if (row is null)
         {
             row = new JobRow { Id = job.Id, Type = job.Type, TargetId = job.TargetId, CreatedAtTicks = job.CreatedAt.UtcTicks };
@@ -247,7 +247,7 @@ internal sealed class SqliteToolStore(IDbContextFactory<NetCoreAIDbContext> fact
         ArgumentNullException.ThrowIfNull(tool);
 
         await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        var row = await db.Tools.FindAsync([tool.Id], cancellationToken).ConfigureAwait(false);
+        var row = await db.Tools.FindAsync([db.CurrentTenant, tool.Id], cancellationToken).ConfigureAwait(false);
         if (row is null)
         {
             row = new ToolRow { Id = tool.Id };
@@ -289,7 +289,7 @@ internal sealed class SqliteAgentStore(IDbContextFactory<NetCoreAIDbContext> fac
         ArgumentNullException.ThrowIfNull(agent);
 
         await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        var row = await db.Agents.FindAsync([agent.Id], cancellationToken).ConfigureAwait(false);
+        var row = await db.Agents.FindAsync([db.CurrentTenant, agent.Id], cancellationToken).ConfigureAwait(false);
         if (row is null)
         {
             row = new AgentRow { Id = agent.Id };
@@ -347,7 +347,7 @@ internal sealed class SqliteRunStore(IDbContextFactory<NetCoreAIDbContext> facto
         ArgumentNullException.ThrowIfNull(run);
 
         await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        var row = await db.Runs.FindAsync([run.Id], cancellationToken).ConfigureAwait(false);
+        var row = await db.Runs.FindAsync([db.CurrentTenant, run.Id], cancellationToken).ConfigureAwait(false);
         if (row is null)
         {
             row = new RunRow { Id = run.Id, AgentId = run.AgentId, StartedAtTicks = run.StartedAt.UtcTicks };
@@ -395,7 +395,7 @@ internal sealed class SqliteApiKeyStore(IDbContextFactory<NetCoreAIDbContext> fa
         ArgumentNullException.ThrowIfNull(key);
 
         await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        var row = await db.ApiKeys.FindAsync([key.Id], cancellationToken).ConfigureAwait(false);
+        var row = await db.ApiKeys.FindAsync([db.CurrentTenant, key.Id], cancellationToken).ConfigureAwait(false);
         if (row is null)
         {
             row = new ApiKeyRow { Id = key.Id };

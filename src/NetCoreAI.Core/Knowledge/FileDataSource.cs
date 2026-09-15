@@ -12,7 +12,7 @@ namespace NetCoreAI.Knowledge;
 /// outside that is read in place and never written to, so pointing a base at a shared drive does not risk
 /// the originals.
 /// </remarks>
-internal sealed class FileDataSource(IOptionsMonitor<NetCoreAIOptions> options, ILogger<FileDataSource> logger) : IDataSource
+internal sealed class FileDataSource(IOptionsMonitor<NetCoreAIOptions> options, NetCoreAI.Tenancy.ITenantAccessor tenants, ILogger<FileDataSource> logger) : IDataSource
 {
     public const string TypeName = "files";
 
@@ -100,13 +100,18 @@ internal sealed class FileDataSource(IOptionsMonitor<NetCoreAIOptions> options, 
     }
 
     /// <summary>The folder a base's uploads live in.</summary>
-    public static string UploadFolder(string dataDirectory, string knowledgeBaseId) =>
-        Path.Combine(dataDirectory, "kb", knowledgeBaseId, "files");
+    public static string UploadFolder(string dataDirectory, string knowledgeBaseId, string? tenantId = null) =>
+        tenantId is null or NetCoreAI.Tenancy.TenantId.Default
+
+            // The path a single-tenant host already uses. Unchanged, so switching tenancy on does not
+            // orphan every file already uploaded.
+            ? Path.Combine(dataDirectory, "kb", knowledgeBaseId, "files")
+            : Path.Combine(dataDirectory, "tenants", tenantId, "kb", knowledgeBaseId, "files");
 
     private string ResolveFolder(DataSourceDefinition definition) =>
         definition.Settings.TryGetValue(FolderSetting, out var folder) && folder is { Length: > 0 }
             ? Path.GetFullPath(folder)
-            : UploadFolder(options.CurrentValue.DataDirectory, definition.KnowledgeBaseId);
+            : UploadFolder(options.CurrentValue.DataDirectory, definition.KnowledgeBaseId, tenants.Current);
 
     private static IEnumerable<string> Files(DataSourceDefinition definition, string folder)
     {

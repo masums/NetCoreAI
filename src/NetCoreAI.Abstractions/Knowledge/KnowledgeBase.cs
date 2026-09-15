@@ -72,7 +72,20 @@ public sealed record KnowledgeBase
     public int ChunkCount { get; init; }
 
     /// <summary>The vector collection name for this base.</summary>
-    public string Collection => $"kb_{Id}";
+    /// <summary>
+    /// The tenant this base belongs to. Stamped when it is created; not something a caller sets.
+    /// </summary>
+    public string TenantId { get; init; } = NetCoreAI.Tenancy.TenantId.Default;
+
+    /// <summary>
+    /// The vector collection holding this base's chunks.
+    /// </summary>
+    /// <remarks>
+    /// The tenant is in the name only when it is not the default one, so a host that never heard of
+    /// tenancy keeps the collections it already has. Without it, two tenants both calling a base "docs"
+    /// would share one collection — which is the same leak as a shared table, one layer down.
+    /// </remarks>
+    public string Collection => TenantId == NetCoreAI.Tenancy.TenantId.Default ? $"kb_{Id}" : $"kb_{TenantId}_{Id}";
 }
 
 /// <summary>What a retrieval should return.</summary>

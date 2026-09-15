@@ -55,6 +55,7 @@ internal sealed class KnowledgeService(
     IEnumerable<IKnowledgeSource> hostSources,
     IOptionsMonitor<NetCoreAIOptions> options,
     NetCoreAI.Security.IAuditLog audit,
+    NetCoreAI.Tenancy.ITenantAccessor tenants,
     ILogger<KnowledgeService> logger) : IKnowledgeService
 {
     private readonly List<IDataSource> _dataSources = [.. dataSources];
@@ -77,6 +78,10 @@ internal sealed class KnowledgeService(
         {
             throw new NetCoreAIException($"A knowledge base with id '{knowledgeBase.Id}' already exists.");
         }
+
+        // Stamped here rather than taken from the caller: the vector collection and the upload folder are
+        // both named from it, so letting a request choose would let one tenant name another's collection.
+        knowledgeBase = knowledgeBase with { TenantId = tenants.Current };
 
         await store.Knowledge.UpsertAsync(knowledgeBase, cancellationToken).ConfigureAwait(false);
         logger.LogInformation("Created knowledge base {Id} ({Name}) using embedding model {Model}.", knowledgeBase.Id, knowledgeBase.Name, knowledgeBase.EmbeddingModel);
@@ -149,7 +154,7 @@ internal sealed class KnowledgeService(
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         // Uploaded files belong to the base and would otherwise sit in the data directory for ever.
-        var folder = FileDataSource.UploadFolder(options.CurrentValue.DataDirectory, id);
+        var folder = FileDataSource.UploadFolder(options.CurrentValue.DataDirectory, id, tenants.Current);
         try
         {
             if (Directory.Exists(folder))
@@ -306,7 +311,7 @@ internal sealed class KnowledgeService(
         await Require(knowledgeBaseId, cancellationToken).ConfigureAwait(false);
 
         var safe = SafeFileName(fileName);
-        var folder = FileDataSource.UploadFolder(options.CurrentValue.DataDirectory, knowledgeBaseId);
+        var folder = FileDataSource.UploadFolder(options.CurrentValue.DataDirectory, knowledgeBaseId, tenants.Current);
         Directory.CreateDirectory(folder);
         var path = Path.Combine(folder, safe);
 

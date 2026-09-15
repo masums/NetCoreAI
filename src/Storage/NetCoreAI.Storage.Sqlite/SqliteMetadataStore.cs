@@ -122,7 +122,7 @@ public sealed class SqliteMetadataStore : IMetadataStore
         public async Task UpsertAsync(ModelDescriptor model, CancellationToken ct = default)
         {
             await using var db = await f.CreateDbContextAsync(ct).ConfigureAwait(false);
-            var row = await db.Models.FindAsync([model.Id], ct).ConfigureAwait(false);
+            var row = await db.Models.FindAsync([db.CurrentTenant, model.Id], ct).ConfigureAwait(false);
             if (row is null)
             {
                 row = new ModelRow { Id = model.Id };
@@ -156,7 +156,7 @@ public sealed class SqliteMetadataStore : IMetadataStore
         public async Task UpsertAsync(ModelAlias alias, CancellationToken ct = default)
         {
             await using var db = await f.CreateDbContextAsync(ct).ConfigureAwait(false);
-            var row = await db.Aliases.FindAsync([alias.Alias], ct).ConfigureAwait(false);
+            var row = await db.Aliases.FindAsync([db.CurrentTenant, alias.Alias], ct).ConfigureAwait(false);
             if (row is null)
             {
                 row = new AliasRow { Alias = alias.Alias };
@@ -194,7 +194,7 @@ public sealed class SqliteMetadataStore : IMetadataStore
         public async Task UpsertAsync(ProviderConnection c, CancellationToken ct = default)
         {
             await using var db = await f.CreateDbContextAsync(ct).ConfigureAwait(false);
-            var row = await db.Connections.FindAsync([c.Id], ct).ConfigureAwait(false);
+            var row = await db.Connections.FindAsync([db.CurrentTenant, c.Id], ct).ConfigureAwait(false);
             if (row is null)
             {
                 row = new ConnectionRow { Id = c.Id };
@@ -239,7 +239,7 @@ public sealed class SqliteMetadataStore : IMetadataStore
         public async Task UpsertAsync(ChatSession session, CancellationToken ct = default)
         {
             await using var db = await f.CreateDbContextAsync(ct).ConfigureAwait(false);
-            var row = await db.Sessions.FindAsync([session.Id], ct).ConfigureAwait(false);
+            var row = await db.Sessions.FindAsync([db.CurrentTenant, session.Id], ct).ConfigureAwait(false);
             if (row is null)
             {
                 row = new SessionRow { Id = session.Id };
@@ -340,7 +340,7 @@ public sealed class SqliteMetadataStore : IMetadataStore
         public async Task UpsertAsync(DownloadJob job, CancellationToken ct = default)
         {
             await using var db = await f.CreateDbContextAsync(ct).ConfigureAwait(false);
-            var row = await db.Downloads.FindAsync([job.Id], ct).ConfigureAwait(false);
+            var row = await db.Downloads.FindAsync([db.CurrentTenant, job.Id], ct).ConfigureAwait(false);
             if (row is null)
             {
                 row = new DownloadRow { Id = job.Id, CreatedAtTicks = job.CreatedAt.UtcTicks };

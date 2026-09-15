@@ -26,6 +26,7 @@ public static class SqliteStorageExtensions
             };
             o.UseSqlite(cs);
         });
+
         builder.Services.Replace(ServiceDescriptor.Singleton<IMetadataStore, SqliteMetadataStore>());
         return builder;
     }

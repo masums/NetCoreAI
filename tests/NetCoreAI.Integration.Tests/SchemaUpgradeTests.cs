@@ -112,18 +112,64 @@ public sealed class SchemaUpgradeTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_table_whose_columns_have_changed_is_refused_by_name()
+    public async Task A_column_that_can_be_added_is_added_and_the_rows_are_kept()
     {
         await Store().InitializeAsync(Ct);
 
-        // A table from a version whose columns differ. Creating the missing ones is not safe to guess at,
-        // so the run stops — but it stops saying which table and which columns, which is the whole point.
-        await ExecuteAsync("DROP TABLE \"Agents\"; CREATE TABLE \"Agents\" (\"Id\" TEXT NOT NULL CONSTRAINT \"PK_Agents\" PRIMARY KEY);");
+        // A table from a version that did not have this column yet, with a row already in it. Rebuilt by
+        // hand because SQLite will not drop a column an index or a key depends on.
+        await ExecuteAsync(
+            "DROP TABLE \"Audit\";"
+            + "CREATE TABLE \"Audit\" (\"TenantId\" TEXT NOT NULL, \"Id\" TEXT NOT NULL, \"AtTicks\" INTEGER NOT NULL, "
+            + "\"Action\" TEXT NOT NULL, \"EntityType\" TEXT NOT NULL, \"EntityId\" TEXT NULL, \"Json\" TEXT NOT NULL, "
+            + "CONSTRAINT \"PK_Audit\" PRIMARY KEY (\"TenantId\", \"Id\"));"
+            + "INSERT INTO \"Audit\" VALUES ('default', 'e1', 1, 'created', 'agent', 'a1', '{}');");
+
+        await Store().InitializeAsync(Ct);
+
+        await using var connection = new SqliteConnection(ConnectionString);
+        await connection.OpenAsync(Ct);
+        await using var command = connection.CreateCommand();
+
+        // The column is there, the row is still there, and the index that needed the column was created
+        // after it rather than before.
+        command.CommandText = "SELECT COUNT(*) FROM \"Audit\" WHERE \"Id\" = 'e1' AND \"ActorId\" IS NULL;";
+        Assert.Equal(1, Convert.ToInt32(await command.ExecuteScalarAsync(Ct), System.Globalization.CultureInfo.InvariantCulture));
+
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'IX_Audit_ActorId_AtTicks';";
+        Assert.Equal(1, Convert.ToInt32(await command.ExecuteScalarAsync(Ct), System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task A_column_that_cannot_be_filled_in_is_refused_by_name()
+    {
+        await Store().InitializeAsync(Ct);
+
+        // Required, with nothing to say what the rows already there should hold. Creating them is not
+        // safe to guess at, so the run stops — saying which table and which column, which is the point.
+        await ExecuteAsync(
+            "DROP TABLE \"Agents\"; CREATE TABLE \"Agents\" (\"TenantId\" TEXT NOT NULL, \"Id\" TEXT NOT NULL, "
+            + "CONSTRAINT \"PK_Agents\" PRIMARY KEY (\"TenantId\", \"Id\"));");
 
         var error = await Assert.ThrowsAsync<NetCoreAIException>(() => Store().InitializeAsync(Ct));
 
         Assert.Contains("Agents is missing", error.Message, StringComparison.Ordinal);
         Assert.Contains("netcoreai.db", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_table_whose_key_has_changed_is_refused_by_name()
+    {
+        await Store().InitializeAsync(Ct);
+
+        // SQLite cannot alter a primary key, so this is a migration rather than an upgrade. Caught here
+        // rather than surfacing later as a UNIQUE constraint failure in front of whoever saved something.
+        await ExecuteAsync("DROP TABLE \"Agents\"; CREATE TABLE \"Agents\" (\"TenantId\" TEXT NOT NULL, \"Id\" TEXT NOT NULL "
+            + "CONSTRAINT \"PK_Agents\" PRIMARY KEY, \"Name\" TEXT NOT NULL, \"Json\" TEXT NOT NULL);");
+
+        var error = await Assert.ThrowsAsync<NetCoreAIException>(() => Store().InitializeAsync(Ct));
+
+        Assert.Contains("Agents is keyed on", error.Message, StringComparison.Ordinal);
     }
 
     private sealed class Factory(string connectionString) : IDbContextFactory<NetCoreAIDbContext>

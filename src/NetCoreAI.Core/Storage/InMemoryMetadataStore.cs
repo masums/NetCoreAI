@@ -6,55 +6,93 @@ namespace NetCoreAI.Storage;
 /// Non-persistent store used by tests and as the fallback when no storage package is registered
 /// (a warning is logged in that case; nothing survives a restart).
 /// </summary>
-public sealed class InMemoryMetadataStore : IMetadataStore
+public sealed class InMemoryMetadataStore(NetCoreAI.Tenancy.ITenantAccessor? tenants = null) : IMetadataStore
 {
-    private readonly ConcurrentDictionary<string, ModelDescriptor> _models = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, ModelAlias> _aliases = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, ProviderConnection> _connections = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, ChatSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, List<ChatMessageRecord>> _messages = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// One set of dictionaries per tenant.
+    /// </summary>
+    /// <remarks>
+    /// A partition rather than a tenant column, because these stores answer <c>ListAsync</c> from
+    /// <c>Values</c> and a column would need every one of them to remember to filter. Isolation that
+    /// depends on fourteen classes remembering is isolation that will be wrong once.
+    /// </remarks>
+    private readonly ConcurrentDictionary<string, Partition> _tenants = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Settings are host-wide, not a tenant's.
+    /// </summary>
+    /// <remarks>
+    /// The tenant list itself lives in settings, so a per-tenant settings store would make the list of
+    /// tenants something each tenant kept privately — which is the one arrangement that cannot work.
+    /// </remarks>
     private readonly ConcurrentDictionary<string, string> _settings = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, DownloadJob> _downloads = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, KnowledgeBase> _knowledgeBases = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, DataSourceDefinition> _dataSources = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, KnowledgeDocument> _documents = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, JobRecord> _jobs = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, ToolDefinition> _tools = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, AgentDefinition> _agents = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, RunTrace> _runs = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, ApiKey> _apiKeys = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, NetCoreAI.Security.AuditEntry> _audit = new(StringComparer.OrdinalIgnoreCase);
 
-    public InMemoryMetadataStore()
+    private Partition Current => _tenants.GetOrAdd(
+        tenants?.Current ?? NetCoreAI.Tenancy.TenantId.Default,
+        _ => new Partition());
+
+    public IModelStore Models => Current.Models;
+    public IAliasStore Aliases => Current.Aliases;
+    public IProviderConnectionStore Connections => Current.Connections;
+    public IChatSessionStore Sessions => Current.Sessions;
+    public ISettingsStore Settings => field ??= new SettingsStore(_settings);
+    public IDownloadStore Downloads => Current.Downloads;
+    public IKnowledgeStore Knowledge => Current.Knowledge;
+    public IJobStore Jobs => Current.Jobs;
+    public IToolStore Tools => Current.Tools;
+    public IAgentStore Agents => Current.Agents;
+    public IRunStore Runs => Current.Runs;
+    public IApiKeyStore ApiKeys => Current.ApiKeys;
+    public IAuditStore Audit => Current.Audit;
+
+    /// <summary>Everything one tenant owns.</summary>
+    private sealed class Partition
     {
-        Models = new ModelStore(_models);
-        Aliases = new AliasStore(_aliases);
-        Connections = new ConnectionStore(_connections);
-        Sessions = new SessionStore(_sessions, _messages);
-        Settings = new SettingsStore(_settings);
-        Downloads = new DownloadStore(_downloads);
-        Knowledge = new KnowledgeStore(_knowledgeBases, _dataSources, _documents);
-        Jobs = new JobStore(_jobs);
-        Tools = new ToolStore(_tools);
-        Agents = new AgentStore(_agents);
-        Runs = new RunStore(_runs);
-        ApiKeys = new ApiKeyStore(_apiKeys);
-        Audit = new AuditStore(_audit);
-    }
+        private readonly ConcurrentDictionary<string, ModelDescriptor> _models = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, ModelAlias> _aliases = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, ProviderConnection> _connections = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, ChatSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, List<ChatMessageRecord>> _messages = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, DownloadJob> _downloads = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, KnowledgeBase> _knowledgeBases = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, DataSourceDefinition> _dataSources = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, KnowledgeDocument> _documents = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, JobRecord> _jobs = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, ToolDefinition> _tools = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, AgentDefinition> _agents = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, RunTrace> _runs = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, ApiKey> _apiKeys = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, NetCoreAI.Security.AuditEntry> _audit = new(StringComparer.OrdinalIgnoreCase);
 
-    public IModelStore Models { get; }
-    public IAliasStore Aliases { get; }
-    public IProviderConnectionStore Connections { get; }
-    public IChatSessionStore Sessions { get; }
-    public ISettingsStore Settings { get; }
-    public IDownloadStore Downloads { get; }
-    public IKnowledgeStore Knowledge { get; }
-    public IJobStore Jobs { get; }
-    public IToolStore Tools { get; }
-    public IAgentStore Agents { get; }
-    public IRunStore Runs { get; }
-    public IApiKeyStore ApiKeys { get; }
-    public IAuditStore Audit { get; }
+        public Partition()
+        {
+            Models = new ModelStore(_models);
+            Aliases = new AliasStore(_aliases);
+            Connections = new ConnectionStore(_connections);
+            Sessions = new SessionStore(_sessions, _messages);
+            Downloads = new DownloadStore(_downloads);
+            Knowledge = new KnowledgeStore(_knowledgeBases, _dataSources, _documents);
+            Jobs = new JobStore(_jobs);
+            Tools = new ToolStore(_tools);
+            Agents = new AgentStore(_agents);
+            Runs = new RunStore(_runs);
+            ApiKeys = new ApiKeyStore(_apiKeys);
+            Audit = new AuditStore(_audit);
+        }
+
+        public IModelStore Models { get; }
+        public IAliasStore Aliases { get; }
+        public IProviderConnectionStore Connections { get; }
+        public IChatSessionStore Sessions { get; }
+        public IDownloadStore Downloads { get; }
+        public IKnowledgeStore Knowledge { get; }
+        public IJobStore Jobs { get; }
+        public IToolStore Tools { get; }
+        public IAgentStore Agents { get; }
+        public IRunStore Runs { get; }
+        public IApiKeyStore ApiKeys { get; }
+        public IAuditStore Audit { get; }
+    }
 
     public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 

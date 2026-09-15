@@ -149,6 +149,33 @@ public static class NetCoreAIServiceCollectionExtensions
         services.TryAddSingleton<NetCoreAI.Guardrails.IBudgetLedger, NetCoreAI.Guardrails.BudgetLedger>();
         services.TryAddSingleton<NetCoreAI.Guardrails.IGuardrailService, NetCoreAI.Guardrails.GuardrailService>();
 
+        // Tenancy. Always registered, always one tenant until a host says otherwise: the metadata store
+        // reads the current tenant on every call, so there is no "tenancy off" branch in it to get wrong.
+        services.TryAddSingleton<NetCoreAI.Tenancy.ITenantAccessor, NetCoreAI.Tenancy.TenantAccessor>();
+        services.TryAddSingleton<NetCoreAI.Tenancy.ITenantService, NetCoreAI.Tenancy.TenantService>();
+        services.TryAddEnumerable(
+        [
+            ServiceDescriptor.Singleton<NetCoreAI.Tenancy.ITenantResolver, NetCoreAI.Tenancy.ClaimTenantResolver>(),
+            ServiceDescriptor.Singleton<NetCoreAI.Tenancy.ITenantResolver, NetCoreAI.Tenancy.SubdomainTenantResolver>(),
+            ServiceDescriptor.Singleton<NetCoreAI.Tenancy.ITenantResolver, NetCoreAI.Tenancy.HeaderTenantResolver>(),
+        ]);
+        services.AddOptions<NetCoreAI.Tenancy.TenancyOptions>()
+            .Configure<IOptions<NetCoreAIOptions>>((tenancy, root) =>
+            {
+                tenancy.Enabled = root.Value.Tenancy.Enabled;
+                tenancy.ClaimType = root.Value.Tenancy.ClaimType;
+                tenancy.Header = root.Value.Tenancy.Header;
+                tenancy.FromSubdomain = root.Value.Tenancy.FromSubdomain;
+                tenancy.CreateOnFirstUse = root.Value.Tenancy.CreateOnFirstUse;
+                foreach (var host in root.Value.Tenancy.IgnoredHosts)
+                {
+                    if (!tenancy.IgnoredHosts.Contains(host))
+                    {
+                        tenancy.IgnoredHosts.Add(host);
+                    }
+                }
+            });
+
         // Who changed what, and the sweep that stops the audit and run tables growing forever.
         services.TryAddSingleton<NetCoreAI.Security.IAuditLog, NetCoreAI.Security.AuditLog>();
         services.AddOptions<NetCoreAI.Security.AuditOptions>()

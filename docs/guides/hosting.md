@@ -33,7 +33,11 @@ A database written by an older NetCoreAI gains whatever tables and indexes the n
 first start after the upgrade. What was already there is left alone, and the added objects are named in the
 log so you can see what happened.
 
-What is *not* handled is a table whose columns have changed. That cannot be guessed at without risking your
+A missing *column* is added too, when that needs no decision about what the rows already there should say —
+it is nullable, or it has a default that means what they always meant.
+
+What is *not* handled is a column that is required with no default, a column whose type changed, or a
+changed primary key. That cannot be guessed at without risking your
 data, so startup stops and names the table and the columns instead. Before 1.0 the answer is to delete
 `netcoreai.db` and its `-wal` and `-shm` files and let it be recreated: you lose saved settings,
 conversations, knowledge bases and agents, but nothing on disk — models and uploaded documents are files,

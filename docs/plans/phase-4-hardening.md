@@ -14,7 +14,7 @@
 4. **Guardrails** — done. Content rules, PII masking, injection heuristics, per-role tool allow-lists, token and cost budgets. Two deviations from the plan above, both deliberate: they sit in the agent run rather than in chat-client middleware, because the input check has to happen before retrieval and before the model is chosen, and the tool allow-list has to narrow the list before the pipeline is built rather than refuse a call after the model has spent one on it; and there is no `IAgentEventHandler` yet, so findings are carried in the run trace and on a counter instead. Everything is off by default, and `GuardrailAction.Ignore` means genuinely off — no scanning, no trace entries. Budgets are counted per process.
 5. **Versioning & publishing** — agents (draft/published/rollback/changelog), tools (versions, deprecation warnings), JSON bundle export/import.
 6. **Built-in tools** — done. Knowledge search, date/time, calculator, allow-listed HTTP fetch, read-only SQL query with row limits. Fetch and SQL are unregistered until configured; fetch takes an exact-host allow-list, refuses address literals and does not follow redirects; SQL refuses anything but a single SELECT and caps rows.
-7. **Security & tenancy** — audit log done; multi-tenant mode (`ITenantResolver`, per-tenant models/KBs/agents/quotas/storage paths) and the data-residency switch outstanding. The audit log covers models, connections, tools, agents, knowledge bases and API keys, and records a guardrail refusal whatever the run setting says — a refusal is not a run, it is somebody being told no. Runs themselves are opt-in (`Audit.IncludeRuns`), because they already have traces and recording both doubles the busiest write path to say the same thing twice. A failed audit write is logged and swallowed: a log that can fail a save is a log that gets switched off the first time it does. The retention sweep that keeps it (and run traces) from growing forever is new too — `PruneAsync` had existed on both stores since Phase 1 and nothing ever called it.
+7. **Security & tenancy** — audit log done; multi-tenancy mostly done; data-residency switch outstanding. The audit log covers models, connections, tools, agents, knowledge bases and API keys, and records a guardrail refusal whatever the run setting says — a refusal is not a run, it is somebody being told no. Runs themselves are opt-in (`Audit.IncludeRuns`), because they already have traces and recording both doubles the busiest write path to say the same thing twice. A failed audit write is logged and swallowed: a log that can fail a save is a log that gets switched off the first time it does. The retention sweep that keeps it (and run traces) from growing forever is new too — `PruneAsync` had existed on both stores since Phase 1 and nothing ever called it.
 8. **Observability** — usage analytics (tokens/cost per agent/model/user/connection), run history browser with trace export, alerts via host `IEmailSender`/webhook.
 9. **Compatibility & embedding** — OpenAI-compatible `/v1/chat/completions` + `/v1/embeddings` (`model` = alias or agent id), embeddable chat widget (Razor component + JS snippet, CSS variables).
 10. **Playground P1** — compare mode (2–3 models), attachments (text/PDF inline extraction).
@@ -22,6 +22,19 @@
 12. **Model ops** — testing & benchmarks (tokens/s, TTFT, memory, history), version updates with rollback, backup/restore.
 13. **Ecosystem** — plugin manifest + NuGet discovery for third-party providers; `IAgentEventHandler`, webhooks, SignalR hub for host UIs.
 14. **Quality** — WCAG 2.1 AA pass, localisation (resx; English + Bengali), docs site, release notes, 1.0 API review of `Abstractions`.
+
+**Multi-tenancy — isolation done, quotas outstanding.** The tenant is part of the primary key of every
+tenant-owned table and of a query filter applied in the `DbContext`, so two tenants can both own an agent
+called `support` and neither mechanism depends on fifteen stores remembering to filter. Resolvers read a
+claim, a subdomain or a header; a request whose tenant cannot be established is refused rather than served
+as the default. Vector collections and upload folders carry the tenant, with the default tenant keeping the
+names it already had. Per-tenant quotas and a dashboard tenant switcher are not built.
+
+This is the one change that needs a database reset: SQLite cannot alter a primary key. Startup detects the
+mismatch and refuses by name rather than letting it surface as a UNIQUE constraint failure later. The
+schema upgrade otherwise grew a second capability here — it now adds a missing *column* as well as a
+missing table, when the column is nullable or has a default, and creates indexes after columns rather than
+before (a test caught that ordering).
 
 ## Release gates for 1.0
 Abstractions API frozen (PublicAPI analyzers), conformance suite public, security review of tool invocation + secrets, load test (100 concurrent sessions on a remote provider), upgrade test from 0.x SQLite schema.

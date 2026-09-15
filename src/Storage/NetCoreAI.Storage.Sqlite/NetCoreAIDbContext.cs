@@ -11,6 +11,46 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
 {
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    /// <summary>
+    /// The tenant every query is filtered to and every new row is stamped with.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An instance property rather than a captured field, because the model is built once and cached: a
+    /// field would bake the first tenant's id into the filter for every tenant after it. EF parameterises
+    /// a member access on the context and re-reads it per query, which is the whole trick — and it is also
+    /// what makes this safe under context pooling, where one instance serves many requests.
+    /// </para>
+    /// <para>
+    /// The accessor is pulled off the application's service provider rather than taken as a constructor
+    /// parameter, because a pooled context must have exactly one constructor taking only its options.
+    /// </para>
+    /// <para>
+    /// No accessor means no tenancy in this host, which is the default tenant — the same value existing
+    /// rows already carry, so there is no separate un-tenanted code path to get wrong.
+    /// </para>
+    /// </remarks>
+    public string CurrentTenant =>
+        (_tenants ??= Accessor(options) ?? Untenanted.Instance).Current;
+
+    private NetCoreAI.Tenancy.ITenantAccessor? _tenants;
+
+    private static NetCoreAI.Tenancy.ITenantAccessor? Accessor(DbContextOptions options) =>
+        options.FindExtension<Microsoft.EntityFrameworkCore.Infrastructure.CoreOptionsExtension>()
+            ?.ApplicationServiceProvider
+            ?.GetService(typeof(NetCoreAI.Tenancy.ITenantAccessor)) as NetCoreAI.Tenancy.ITenantAccessor;
+
+    /// <summary>Stands in when a host has no tenancy at all, so the filter has something to read.</summary>
+    private sealed class Untenanted : NetCoreAI.Tenancy.ITenantAccessor
+    {
+        public static readonly Untenanted Instance = new();
+
+        public string Current => NetCoreAI.Tenancy.TenantId.Default;
+
+        public IDisposable Use(string tenantId) =>
+            throw new NotSupportedException("This host has no tenancy configured.");
+    }
+
     public DbSet<ModelRow> Models => Set<ModelRow>();
     public DbSet<AliasRow> Aliases => Set<AliasRow>();
     public DbSet<ConnectionRow> Connections => Set<ConnectionRow>();
@@ -28,6 +68,83 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
     public DbSet<RunRow> Runs => Set<RunRow>();
     public DbSet<ApiKeyRow> ApiKeys => Set<ApiKeyRow>();
     public DbSet<AuditRow> Audit => Set<AuditRow>();
+
+    /// <summary>
+    /// Stamps new rows with the current tenant.
+    /// </summary>
+    /// <remarks>
+    /// Done here rather than in each store so that a store cannot forget. Always overwritten rather than
+    /// filled in when blank: a row is created by whoever is acting now, and letting a caller choose would
+    /// make writing into another tenant a matter of setting a field.
+    /// </remarks>
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        foreach (var entry in ChangeTracker.Entries<ITenantOwned>())
+        {
+            if (entry.State == EntityState.Added)
+            {
+                entry.Entity.TenantId = CurrentTenant;
+            }
+        }
+
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    /// <summary>
+    /// Filters every tenant-owned table to the current tenant, and gives each one its column.
+    /// </summary>
+    /// <remarks>
+    /// A filter here covers every read in every store — including <c>Find</c>, <c>ExecuteDelete</c> and
+    /// <c>ExecuteUpdate</c>, which all go through the same queryable. The column defaults to the default
+    /// tenant so a database written before tenancy existed reads as one tenant's data rather than as
+    /// nobody's.
+    /// </remarks>
+    private void ConfigureTenancy(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ModelRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
+        modelBuilder.Entity<AliasRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
+        modelBuilder.Entity<ConnectionRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
+        modelBuilder.Entity<SessionRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
+        modelBuilder.Entity<MessageRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
+        modelBuilder.Entity<KnowledgeBaseRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
+        modelBuilder.Entity<DataSourceRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
+        modelBuilder.Entity<DocumentRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
+        modelBuilder.Entity<ToolRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
+        modelBuilder.Entity<AgentRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
+        modelBuilder.Entity<RunRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
+        modelBuilder.Entity<ApiKeyRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
+        modelBuilder.Entity<AuditRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
+        modelBuilder.Entity<DownloadRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
+        modelBuilder.Entity<JobRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
+
+        foreach (var entity in modelBuilder.Model.GetEntityTypes())
+        {
+            if (!typeof(ITenantOwned).IsAssignableFrom(entity.ClrType))
+            {
+                continue;
+            }
+
+            modelBuilder.Entity(entity.ClrType)
+                .Property(nameof(ITenantOwned.TenantId))
+                .IsRequired()
+
+                // The default is what lets this column be added to an existing table: every row already
+                // there becomes the default tenant's, which is what it always was.
+                .HasDefaultValue(NetCoreAI.Tenancy.TenantId.Default);
+
+            // The tenant is part of the identity of the row, not a column beside it. Two tenants both
+            // calling an agent "support" is the ordinary case, and a key of Id alone makes the second one
+            // a UNIQUE constraint failure — at save time, in front of a user, for no reason they can see.
+            //
+            // It also means every key lookup is scoped by construction rather than by remembering to
+            // filter, which is the stronger guarantee of the two.
+            var key = entity.FindPrimaryKey()?.Properties.Select(p => p.Name).ToList() ?? ["Id"];
+            if (key is not [nameof(ITenantOwned.TenantId), ..])
+            {
+                modelBuilder.Entity(entity.ClrType).HasKey([nameof(ITenantOwned.TenantId), .. key]);
+            }
+        }
+    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -119,12 +236,28 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
             e.HasIndex(x => new { x.AgentId, x.StartedAtTicks });
             e.HasIndex(x => x.StartedAtTicks);
         });
+
+        ConfigureTenancy(modelBuilder);
     }
 }
 
 // Rows keep a JSON payload plus the handful of columns we filter/sort on.
-public sealed class ModelRow
+/// <summary>
+/// A row that belongs to one tenant.
+/// </summary>
+/// <remarks>
+/// The interface exists so the query filter and the stamp can be written once, in
+/// <see cref="NetCoreAIDbContext"/>, rather than in each of the fourteen stores — where the one that
+/// forgot would be a data leak rather than a compile error.
+/// </remarks>
+public interface ITenantOwned
 {
+    string TenantId { get; set; }
+}
+
+public sealed class ModelRow : ITenantOwned
+{
+    public string TenantId { get; set; } = NetCoreAI.Tenancy.TenantId.Default;
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string Format { get; set; } = "";
@@ -133,31 +266,35 @@ public sealed class ModelRow
     public string Json { get; set; } = "";
 }
 
-public sealed class AliasRow
+public sealed class AliasRow : ITenantOwned
 {
+    public string TenantId { get; set; } = NetCoreAI.Tenancy.TenantId.Default;
     public string Alias { get; set; } = "";
     public string ModelId { get; set; } = "";
     public string FallbacksJson { get; set; } = "[]";
 }
 
-public sealed class ConnectionRow
+public sealed class ConnectionRow : ITenantOwned
 {
+    public string TenantId { get; set; } = NetCoreAI.Tenancy.TenantId.Default;
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string ProviderId { get; set; } = "";
     public string Json { get; set; } = "";
 }
 
-public sealed class SessionRow
+public sealed class SessionRow : ITenantOwned
 {
+    public string TenantId { get; set; } = NetCoreAI.Tenancy.TenantId.Default;
     public string Id { get; set; } = "";
     public string? UserId { get; set; }
     public long UpdatedAtTicks { get; set; }
     public string Json { get; set; } = "";
 }
 
-public sealed class MessageRow
+public sealed class MessageRow : ITenantOwned
 {
+    public string TenantId { get; set; } = NetCoreAI.Tenancy.TenantId.Default;
     public string Id { get; set; } = "";
     public string SessionId { get; set; } = "";
     public long CreatedAtTicks { get; set; }
@@ -171,8 +308,9 @@ public sealed class SettingRow
     public string Scope { get; set; } = "Global";
 }
 
-public sealed class DownloadRow
+public sealed class DownloadRow : ITenantOwned
 {
+    public string TenantId { get; set; } = NetCoreAI.Tenancy.TenantId.Default;
     public string Id { get; set; } = "";
     public string State { get; set; } = "";
     public long CreatedAtTicks { get; set; }
@@ -187,8 +325,9 @@ public sealed class InstanceRow
     public long LastSeenAtTicks { get; set; }
 }
 
-public sealed class KnowledgeBaseRow
+public sealed class KnowledgeBaseRow : ITenantOwned
 {
+    public string TenantId { get; set; } = NetCoreAI.Tenancy.TenantId.Default;
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string EmbeddingModel { get; set; } = "";
@@ -196,8 +335,9 @@ public sealed class KnowledgeBaseRow
     public string Json { get; set; } = "";
 }
 
-public sealed class DataSourceRow
+public sealed class DataSourceRow : ITenantOwned
 {
+    public string TenantId { get; set; } = NetCoreAI.Tenancy.TenantId.Default;
     public string Id { get; set; } = "";
     public string KnowledgeBaseId { get; set; } = "";
     public string Type { get; set; } = "";
@@ -205,8 +345,9 @@ public sealed class DataSourceRow
     public string Json { get; set; } = "";
 }
 
-public sealed class DocumentRow
+public sealed class DocumentRow : ITenantOwned
 {
+    public string TenantId { get; set; } = NetCoreAI.Tenancy.TenantId.Default;
     public string Id { get; set; } = "";
     public string KnowledgeBaseId { get; set; } = "";
     public string? DataSourceId { get; set; }
@@ -218,23 +359,26 @@ public sealed class DocumentRow
     public string Json { get; set; } = "";
 }
 
-public sealed class ToolRow
+public sealed class ToolRow : ITenantOwned
 {
+    public string TenantId { get; set; } = NetCoreAI.Tenancy.TenantId.Default;
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string Kind { get; set; } = "";
     public string Json { get; set; } = "";
 }
 
-public sealed class AgentRow
+public sealed class AgentRow : ITenantOwned
 {
+    public string TenantId { get; set; } = NetCoreAI.Tenancy.TenantId.Default;
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string Json { get; set; } = "";
 }
 
-public sealed class ApiKeyRow
+public sealed class ApiKeyRow : ITenantOwned
 {
+    public string TenantId { get; set; } = NetCoreAI.Tenancy.TenantId.Default;
     public string Id { get; set; } = "";
     public string Hash { get; set; } = "";
     public string Json { get; set; } = "";
@@ -244,8 +388,9 @@ public sealed class ApiKeyRow
 /// One audit entry. The columns are the ones a filter uses; everything else is in the JSON, like every
 /// other row here.
 /// </summary>
-public sealed class AuditRow
+public sealed class AuditRow : ITenantOwned
 {
+    public string TenantId { get; set; } = NetCoreAI.Tenancy.TenantId.Default;
     public string Id { get; set; } = "";
     public long AtTicks { get; set; }
     public string Action { get; set; } = "";
@@ -255,16 +400,18 @@ public sealed class AuditRow
     public string Json { get; set; } = "";
 }
 
-public sealed class RunRow
+public sealed class RunRow : ITenantOwned
 {
+    public string TenantId { get; set; } = NetCoreAI.Tenancy.TenantId.Default;
     public string Id { get; set; } = "";
     public string AgentId { get; set; } = "";
     public long StartedAtTicks { get; set; }
     public string Json { get; set; } = "";
 }
 
-public sealed class JobRow
+public sealed class JobRow : ITenantOwned
 {
+    public string TenantId { get; set; } = NetCoreAI.Tenancy.TenantId.Default;
     public string Id { get; set; } = "";
     public string Type { get; set; } = "";
     public string? TargetId { get; set; }
