@@ -45,6 +45,7 @@ public sealed class InMemoryMetadataStore(NetCoreAI.Tenancy.ITenantAccessor? ten
     public IApiKeyStore ApiKeys => Current.ApiKeys;
     public IAuditStore Audit => Current.Audit;
     public IAgentVersionStore AgentVersions => Current.AgentVersions;
+    public IToolGroupStore ToolGroups => Current.ToolGroups;
 
     /// <summary>Everything one tenant owns.</summary>
     private sealed class Partition
@@ -65,6 +66,7 @@ public sealed class InMemoryMetadataStore(NetCoreAI.Tenancy.ITenantAccessor? ten
         private readonly ConcurrentDictionary<string, ApiKey> _apiKeys = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, NetCoreAI.Security.AuditEntry> _audit = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, AgentVersion> _agentVersions = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, ToolGroup> _toolGroups = new(StringComparer.OrdinalIgnoreCase);
 
         public Partition()
         {
@@ -81,6 +83,7 @@ public sealed class InMemoryMetadataStore(NetCoreAI.Tenancy.ITenantAccessor? ten
             ApiKeys = new ApiKeyStore(_apiKeys);
             Audit = new AuditStore(_audit);
             AgentVersions = new AgentVersionStore(_agentVersions);
+            ToolGroups = new ToolGroupStore(_toolGroups);
         }
 
         public IModelStore Models { get; }
@@ -96,6 +99,7 @@ public sealed class InMemoryMetadataStore(NetCoreAI.Tenancy.ITenantAccessor? ten
         public IApiKeyStore ApiKeys { get; }
         public IAuditStore Audit { get; }
         public IAgentVersionStore AgentVersions { get; }
+        public IToolGroupStore ToolGroups { get; }
     }
 
     public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
@@ -189,6 +193,18 @@ public sealed class InMemoryMetadataStore(NetCoreAI.Tenancy.ITenantAccessor? ten
 
             return Task.FromResult(stale.Count);
         }
+    }
+
+    private sealed class ToolGroupStore(ConcurrentDictionary<string, ToolGroup> d) : IToolGroupStore
+    {
+        public Task<IReadOnlyList<ToolGroup>> ListAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<ToolGroup>>([.. d.Values.OrderBy(g => g.Name, StringComparer.Ordinal)]);
+
+        public Task<ToolGroup?> GetAsync(string id, CancellationToken ct = default) => Task.FromResult(d.GetValueOrDefault(id));
+
+        public Task UpsertAsync(ToolGroup group, CancellationToken ct = default) { d[group.Id] = group; return Task.CompletedTask; }
+
+        public Task DeleteAsync(string id, CancellationToken ct = default) { d.TryRemove(id, out _); return Task.CompletedTask; }
     }
 
     private sealed class AgentVersionStore(ConcurrentDictionary<string, AgentVersion> d) : IAgentVersionStore

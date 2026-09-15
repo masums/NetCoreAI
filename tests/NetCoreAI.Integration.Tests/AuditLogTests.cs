@@ -287,6 +287,7 @@ public sealed class AuditLogTests : IAsyncLifetime
         public IRunStore Runs => _inner.Runs;
         public IApiKeyStore ApiKeys => _inner.ApiKeys;
         public IAgentVersionStore AgentVersions => _inner.AgentVersions;
+        public IToolGroupStore ToolGroups => _inner.ToolGroups;
 
         public Task InitializeAsync(CancellationToken cancellationToken = default) => _inner.InitializeAsync(cancellationToken);
         public Task<bool> IsHealthyAsync(CancellationToken cancellationToken = default) => _inner.IsHealthyAsync(cancellationToken);

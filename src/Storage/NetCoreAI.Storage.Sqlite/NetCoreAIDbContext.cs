@@ -69,6 +69,7 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
     public DbSet<ApiKeyRow> ApiKeys => Set<ApiKeyRow>();
     public DbSet<AuditRow> Audit => Set<AuditRow>();
     public DbSet<AgentVersionRow> AgentVersions => Set<AgentVersionRow>();
+    public DbSet<ToolGroupRow> ToolGroups => Set<ToolGroupRow>();
 
     /// <summary>
     /// Stamps new rows with the current tenant.
@@ -116,6 +117,7 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
         modelBuilder.Entity<ApiKeyRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
         modelBuilder.Entity<AuditRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
         modelBuilder.Entity<AgentVersionRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
+        modelBuilder.Entity<ToolGroupRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
         modelBuilder.Entity<DownloadRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
         modelBuilder.Entity<JobRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
 
@@ -229,6 +231,7 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
             e.HasIndex(x => new { x.EntityType, x.EntityId, x.AtTicks });
             e.HasIndex(x => new { x.ActorId, x.AtTicks });
         });
+        modelBuilder.Entity<ToolGroupRow>(e => { e.ToTable("ToolGroups"); e.HasKey(x => x.Id); });
         modelBuilder.Entity<AgentVersionRow>(e =>
         {
             e.ToTable("AgentVersions");
@@ -412,6 +415,15 @@ public sealed class AuditRow : ITenantOwned
     public string EntityType { get; set; } = "";
     public string? EntityId { get; set; }
     public string? ActorId { get; set; }
+    public string Json { get; set; } = "";
+}
+
+/// <summary>A named set of tools.</summary>
+public sealed class ToolGroupRow : ITenantOwned
+{
+    public string TenantId { get; set; } = NetCoreAI.Tenancy.TenantId.Default;
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
     public string Json { get; set; } = "";
 }
 

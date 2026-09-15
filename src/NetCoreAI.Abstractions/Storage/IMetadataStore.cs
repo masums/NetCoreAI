@@ -39,6 +39,8 @@ public interface IMetadataStore
     IAuditStore Audit { get; }
 
     IAgentVersionStore AgentVersions { get; }
+
+    IToolGroupStore ToolGroups { get; }
 }
 
 public interface IModelStore
@@ -245,6 +247,18 @@ public interface ISnapshotSource
 {
     /// <summary>Writes a consistent copy to <paramref name="path"/>, which must not already exist.</summary>
     Task SnapshotAsync(string path, CancellationToken cancellationToken = default);
+}
+
+/// <summary>Named sets of tools.</summary>
+public interface IToolGroupStore
+{
+    Task<IReadOnlyList<ToolGroup>> ListAsync(CancellationToken cancellationToken = default);
+
+    Task<ToolGroup?> GetAsync(string id, CancellationToken cancellationToken = default);
+
+    Task UpsertAsync(ToolGroup group, CancellationToken cancellationToken = default);
+
+    Task DeleteAsync(string id, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

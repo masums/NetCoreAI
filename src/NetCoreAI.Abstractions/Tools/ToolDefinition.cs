@@ -138,6 +138,30 @@ public sealed record ToolResponseMapping
     public bool NoteTruncation { get; init; } = true;
 }
 
+/// <summary>
+/// A named set of tools, so an agent can be given a capability rather than a list.
+/// </summary>
+/// <remarks>
+/// An agent names the group; adding a tool to the group gives it to every agent that named it. That is the
+/// point and also the risk, so it is worth being deliberate about which groups exist: a group called
+/// "everything" is a way to hand an agent a tool nobody meant it to have.
+/// </remarks>
+public sealed record ToolGroup
+{
+    public required string Id { get; init; }
+
+    public required string Name { get; init; }
+
+    public string? Description { get; init; }
+
+    /// <summary>Tool ids or names in this group. Ones that no longer exist are ignored when it is used.</summary>
+    public IReadOnlyList<string> ToolIds { get; init; } = [];
+
+    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
+
+    public DateTimeOffset? UpdatedAt { get; init; }
+}
+
 /// <summary>A tool an agent can call: what it is, how it is invoked, and what the model is allowed to set.</summary>
 public sealed record ToolDefinition
 {
@@ -195,6 +219,36 @@ public sealed record ToolDefinition
 
     /// <summary>For <see cref="ToolKind.Code"/>: the method this tool wraps, for display.</summary>
     public string? CodeTarget { get; init; }
+
+    /// <summary>
+    /// How many times the surface the model sees has changed.
+    /// </summary>
+    /// <remarks>
+    /// Counted by the host on save, and only when the name, description or parameters move — the things a
+    /// model reads. Renaming the tool's owner or fixing an internal note is not a new version, because
+    /// nothing about the calls it will receive is different.
+    ///
+    /// Not a compatibility promise. Two agents cannot call two versions of one tool; there is one tool and
+    /// this says how much it has moved under them. That is the honest amount of versioning a thing invoked
+    /// mid-run can have without pretending to be an API gateway.
+    /// </remarks>
+    public int Version { get; init; } = 1;
+
+    /// <summary>
+    /// This tool still works and should not be used in anything new.
+    /// </summary>
+    /// <remarks>
+    /// Deprecated rather than deleted, because deleting one silently removes a capability from every agent
+    /// that named it — and an agent that has quietly lost a tool answers from memory instead of saying it
+    /// cannot find out.
+    /// </remarks>
+    public bool Deprecated { get; init; }
+
+    /// <summary>Why it is deprecated, for the person reading the designer.</summary>
+    public string? DeprecationMessage { get; init; }
+
+    /// <summary>The tool to use instead, when there is one.</summary>
+    public string? ReplacedBy { get; init; }
 
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 

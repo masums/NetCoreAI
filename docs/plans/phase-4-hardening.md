@@ -12,7 +12,7 @@
 2. **Routing rules** — `RoutingPolicy` (prompt length, tool requirement, user role, cost/latency budgets) evaluated before `FallbackChatClient`.
 3. **Retrieval quality** — BM25 index (SQLite FTS5) + reciprocal rank fusion; cross-encoder re-ranker via ONNX (`bge-reranker-base`); KB evaluation (QA sets, hit rate, LLM-judge faithfulness).
 4. **Guardrails** — done. Content rules, PII masking, injection heuristics, per-role tool allow-lists, token and cost budgets. Two deviations from the plan above, both deliberate: they sit in the agent run rather than in chat-client middleware, because the input check has to happen before retrieval and before the model is chosen, and the tool allow-list has to narrow the list before the pipeline is built rather than refuse a call after the model has spent one on it; and there is no `IAgentEventHandler` yet, so findings are carried in the run trace and on a counter instead. Everything is off by default, and `GuardrailAction.Ignore` means genuinely off — no scanning, no trace entries. Budgets are counted per process.
-5. **Versioning & publishing** — agent versioning and the JSON bundle are done; tool versioning and deprecation warnings are outstanding.
+5. **Versioning & publishing** — done. Agent versioning, tool groups and versioning, and the JSON bundle.
 
 A bundle carries what a person built — agents, tools, knowledge base definitions and their sources — and
 nothing the environment accumulated: no documents, conversations, runs or audit entries, because carrying a
@@ -35,6 +35,16 @@ is the one thing publishing promised would not happen.
 
 Building it exposed a bug in `SaveAsync`: the published pointer came from the request, so every save of a
 draft silently unpublished the agent. It is taken from the stored record now.
+
+Tools get a lighter treatment than agents, deliberately. A tool is invoked mid-run and two agents cannot
+call two versions of one, so the version is a counter of how much the surface has moved under them rather
+than a compatibility promise — and it counts only what a model sees: the name, the description, the
+parameters. A changed timeout is not a new version. Saving a tool whose surface moved logs which agents use
+it, because that is the moment several of them quietly start behaving differently and nobody was asked.
+Groups expand when an agent runs rather than when it is saved, so adding a tool to a group reaches every
+agent that named it. A deprecated tool is still handed over: removing a capability from a running agent is
+worse than letting it use an old tool for another day, since an agent that has quietly lost a tool answers
+from memory instead of saying it cannot find out.
 6. **Built-in tools** — done. Knowledge search, date/time, calculator, allow-listed HTTP fetch, read-only SQL query with row limits. Fetch and SQL are unregistered until configured; fetch takes an exact-host allow-list, refuses address literals and does not follow redirects; SQL refuses anything but a single SELECT and caps rows.
 7. **Security & tenancy** — done, bar a dashboard tenant switcher. Audit log, multi-tenancy with quotas, data-residency switch. The audit log covers models, connections, tools, agents, knowledge bases and API keys, and records a guardrail refusal whatever the run setting says — a refusal is not a run, it is somebody being told no. Runs themselves are opt-in (`Audit.IncludeRuns`), because they already have traces and recording both doubles the busiest write path to say the same thing twice. A failed audit write is logged and swallowed: a log that can fail a save is a log that gets switched off the first time it does. The retention sweep that keeps it (and run traces) from growing forever is new too — `PruneAsync` had existed on both stores since Phase 1 and nothing ever called it.
 8. **Observability** — done. Usage analytics, the run history browser, and alerts.

@@ -704,3 +704,49 @@ internal sealed class SqliteAgentVersionStore(IDbContextFactory<NetCoreAIDbConte
         await db.AgentVersions.Where(v => v.AgentId == agentId).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
     }
 }
+
+
+/// <summary>Named sets of tools.</summary>
+internal sealed class SqliteToolGroupStore(IDbContextFactory<NetCoreAIDbContext> factory) : IToolGroupStore
+{
+    public async Task<IReadOnlyList<ToolGroup>> ListAsync(CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await db.ToolGroups.AsNoTracking().OrderBy(g => g.Name).Select(g => g.Json)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        return [.. rows.Select(SqliteMetadataStore.Deserialize<ToolGroup>)];
+    }
+
+    public async Task<ToolGroup?> GetAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var json = await db.ToolGroups.AsNoTracking().Where(g => g.Id == id).Select(g => g.Json)
+            .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+
+        return json is null ? null : SqliteMetadataStore.Deserialize<ToolGroup>(json);
+    }
+
+    public async Task UpsertAsync(ToolGroup group, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var row = await db.ToolGroups.FindAsync([db.CurrentTenant, group.Id], cancellationToken).ConfigureAwait(false);
+        if (row is null)
+        {
+            row = new ToolGroupRow { Id = group.Id };
+            db.ToolGroups.Add(row);
+        }
+
+        row.Name = group.Name;
+        row.Json = SqliteMetadataStore.Serialize(group);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task DeleteAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await db.ToolGroups.Where(g => g.Id == id).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+    }
+}

@@ -188,3 +188,40 @@ The last two are off until you say where they may point, and they are *absent* r
 **`query_database`** has three limits, because any one alone is thin: the statement must be a single SELECT, the rows are capped, and you should point it at an account that can only read. The string check is the weakest of the three — it refuses a second statement smuggled after a semicolon, and writes hidden inside a SELECT — but a permission the account does not have is what holds when a check is wrong. `AllowedTables` is worth setting even then: "read-only" and "may read the password hashes" are not mutually exclusive.
 
 **`calculate`** parses the expression itself rather than evaluating it. Its input comes from a model, which in practice means from whoever is talking to the model, and an expression evaluator that can reach a type system is a way to run code by asking nicely.
+
+## Groups, versions and deprecation
+
+A **group** is a named set of tools an agent can be given instead of a list of ids.
+
+```
+PUT /api/tools/groups/orders   { "name": "Orders", "toolIds": ["lookup_order", "cancel_order"] }
+```
+
+An agent that names `orders` gets everything in it. Groups expand when the agent **runs**, not when it is
+saved, so adding a tool to a group gives it to every agent that named the group — which is the point, and
+also the risk. A group called "everything" is a way to hand an agent a tool nobody meant it to have.
+
+A tool carries a **version**, counted by the host. It moves when the surface the model sees moves — the
+name, the description, the parameters — and not when anything else does. A changed timeout alters nothing
+about the calls the tool will receive, and a version number that moves for it means nothing.
+
+It is not a compatibility promise. Two agents cannot call two versions of one tool; there is one tool, and
+the number says how much it has shifted under the agents using it. That is the honest amount of versioning
+a thing invoked mid-run can have without pretending to be an API gateway.
+
+Saving a tool whose surface changed logs the agents that use it:
+
+> `Tool lookup_order changed what the model sees (now version 3). 4 agent(s) use it: support, triage, …`
+
+`GET /api/tools/{id}/used-by` answers the same question before you change anything, and counts agents that
+reach the tool through a group.
+
+**Deprecate rather than delete.**
+
+```jsonc
+{ "deprecated": true, "deprecationMessage": "Use the v2 order service.", "replacedBy": "lookup_order_v2" }
+```
+
+A deprecated tool still works and still reaches agents that name it, with a warning logged each time.
+Deleting one instead silently removes a capability, and an agent that has quietly lost a tool does not say
+so — it answers from memory.
