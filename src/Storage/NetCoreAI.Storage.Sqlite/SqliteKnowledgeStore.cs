@@ -654,3 +654,53 @@ internal sealed class SqliteAuditStore(IDbContextFactory<NetCoreAIDbContext> fac
         return await db.Audit.Where(a => a.AtTicks < cutoff).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
     }
 }
+
+
+/// <summary>Published agent versions. Nothing here updates a row; a change is a new version.</summary>
+internal sealed class SqliteAgentVersionStore(IDbContextFactory<NetCoreAIDbContext> factory) : IAgentVersionStore
+{
+    public async Task<IReadOnlyList<AgentVersion>> ListAsync(string agentId, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await db.AgentVersions.AsNoTracking()
+            .Where(v => v.AgentId == agentId)
+            .OrderByDescending(v => v.Version)
+            .Select(v => v.Json)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        return [.. rows.Select(SqliteMetadataStore.Deserialize<AgentVersion>)];
+    }
+
+    public async Task<AgentVersion?> GetAsync(string agentId, int version, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var json = await db.AgentVersions.AsNoTracking()
+            .Where(v => v.AgentId == agentId && v.Version == version)
+            .Select(v => v.Json)
+            .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+
+        return json is null ? null : SqliteMetadataStore.Deserialize<AgentVersion>(json);
+    }
+
+    public async Task AddAsync(AgentVersion version, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        db.AgentVersions.Add(new AgentVersionRow
+        {
+            AgentId = version.AgentId,
+            Version = version.Version,
+            PublishedAtTicks = version.PublishedAt.UtcTicks,
+            Json = SqliteMetadataStore.Serialize(version),
+        });
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task DeleteAllAsync(string agentId, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await db.AgentVersions.Where(v => v.AgentId == agentId).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+    }
+}

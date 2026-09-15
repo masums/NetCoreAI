@@ -44,6 +44,7 @@ public sealed class InMemoryMetadataStore(NetCoreAI.Tenancy.ITenantAccessor? ten
     public IRunStore Runs => Current.Runs;
     public IApiKeyStore ApiKeys => Current.ApiKeys;
     public IAuditStore Audit => Current.Audit;
+    public IAgentVersionStore AgentVersions => Current.AgentVersions;
 
     /// <summary>Everything one tenant owns.</summary>
     private sealed class Partition
@@ -63,6 +64,7 @@ public sealed class InMemoryMetadataStore(NetCoreAI.Tenancy.ITenantAccessor? ten
         private readonly ConcurrentDictionary<string, RunTrace> _runs = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, ApiKey> _apiKeys = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, NetCoreAI.Security.AuditEntry> _audit = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, AgentVersion> _agentVersions = new(StringComparer.OrdinalIgnoreCase);
 
         public Partition()
         {
@@ -78,6 +80,7 @@ public sealed class InMemoryMetadataStore(NetCoreAI.Tenancy.ITenantAccessor? ten
             Runs = new RunStore(_runs);
             ApiKeys = new ApiKeyStore(_apiKeys);
             Audit = new AuditStore(_audit);
+            AgentVersions = new AgentVersionStore(_agentVersions);
         }
 
         public IModelStore Models { get; }
@@ -92,6 +95,7 @@ public sealed class InMemoryMetadataStore(NetCoreAI.Tenancy.ITenantAccessor? ten
         public IRunStore Runs { get; }
         public IApiKeyStore ApiKeys { get; }
         public IAuditStore Audit { get; }
+        public IAgentVersionStore AgentVersions { get; }
     }
 
     public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
@@ -184,6 +188,35 @@ public sealed class InMemoryMetadataStore(NetCoreAI.Tenancy.ITenantAccessor? ten
             }
 
             return Task.FromResult(stale.Count);
+        }
+    }
+
+    private sealed class AgentVersionStore(ConcurrentDictionary<string, AgentVersion> d) : IAgentVersionStore
+    {
+        private static string Key(string agentId, int version) => $"{agentId}{version}";
+
+        public Task<IReadOnlyList<AgentVersion>> ListAsync(string agentId, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<AgentVersion>>([.. d.Values
+                .Where(v => string.Equals(v.AgentId, agentId, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(v => v.Version)]);
+
+        public Task<AgentVersion?> GetAsync(string agentId, int version, CancellationToken ct = default) =>
+            Task.FromResult(d.GetValueOrDefault(Key(agentId, version)));
+
+        public Task AddAsync(AgentVersion version, CancellationToken ct = default)
+        {
+            d[Key(version.AgentId, version.Version)] = version;
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteAllAsync(string agentId, CancellationToken ct = default)
+        {
+            foreach (var key in d.Where(kv => string.Equals(kv.Value.AgentId, agentId, StringComparison.OrdinalIgnoreCase)).Select(kv => kv.Key).ToList())
+            {
+                d.TryRemove(key, out _);
+            }
+
+            return Task.CompletedTask;
         }
     }
 

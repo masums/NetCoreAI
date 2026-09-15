@@ -68,6 +68,7 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
     public DbSet<RunRow> Runs => Set<RunRow>();
     public DbSet<ApiKeyRow> ApiKeys => Set<ApiKeyRow>();
     public DbSet<AuditRow> Audit => Set<AuditRow>();
+    public DbSet<AgentVersionRow> AgentVersions => Set<AgentVersionRow>();
 
     /// <summary>
     /// Stamps new rows with the current tenant.
@@ -114,6 +115,7 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
         modelBuilder.Entity<RunRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
         modelBuilder.Entity<ApiKeyRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
         modelBuilder.Entity<AuditRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
+        modelBuilder.Entity<AgentVersionRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
         modelBuilder.Entity<DownloadRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
         modelBuilder.Entity<JobRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
 
@@ -226,6 +228,15 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
             e.HasIndex(x => x.AtTicks);
             e.HasIndex(x => new { x.EntityType, x.EntityId, x.AtTicks });
             e.HasIndex(x => new { x.ActorId, x.AtTicks });
+        });
+        modelBuilder.Entity<AgentVersionRow>(e =>
+        {
+            e.ToTable("AgentVersions");
+
+            // The agent and the number together. A version means nothing without the agent it is of, and
+            // two agents both having a version 3 is the ordinary case.
+            e.HasKey(x => new { x.AgentId, x.Version });
+            e.HasIndex(x => new { x.AgentId, x.Version });
         });
         modelBuilder.Entity<RunRow>(e =>
         {
@@ -401,6 +412,16 @@ public sealed class AuditRow : ITenantOwned
     public string EntityType { get; set; } = "";
     public string? EntityId { get; set; }
     public string? ActorId { get; set; }
+    public string Json { get; set; } = "";
+}
+
+/// <summary>One published version of an agent.</summary>
+public sealed class AgentVersionRow : ITenantOwned
+{
+    public string TenantId { get; set; } = NetCoreAI.Tenancy.TenantId.Default;
+    public string AgentId { get; set; } = "";
+    public int Version { get; set; }
+    public long PublishedAtTicks { get; set; }
     public string Json { get; set; } = "";
 }
 

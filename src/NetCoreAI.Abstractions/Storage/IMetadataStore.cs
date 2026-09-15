@@ -37,6 +37,8 @@ public interface IMetadataStore
     IApiKeyStore ApiKeys { get; }
 
     IAuditStore Audit { get; }
+
+    IAgentVersionStore AgentVersions { get; }
 }
 
 public interface IModelStore
@@ -243,6 +245,22 @@ public interface ISnapshotSource
 {
     /// <summary>Writes a consistent copy to <paramref name="path"/>, which must not already exist.</summary>
     Task SnapshotAsync(string path, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Published agent versions. Append-only, and deleted only with the agent they belong to.
+/// </summary>
+public interface IAgentVersionStore
+{
+    /// <summary>Every published version of an agent, newest first.</summary>
+    Task<IReadOnlyList<AgentVersion>> ListAsync(string agentId, CancellationToken cancellationToken = default);
+
+    Task<AgentVersion?> GetAsync(string agentId, int version, CancellationToken cancellationToken = default);
+
+    Task AddAsync(AgentVersion version, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes an agent's history, when the agent itself goes.</summary>
+    Task DeleteAllAsync(string agentId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Who did what. Append-only: there is no update, and the only delete is retention.</summary>

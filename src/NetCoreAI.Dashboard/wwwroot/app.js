@@ -95,6 +95,7 @@
       case 'key-delete': return confirm(`Revoke "${name}"? Anything using it stops working at once.`) && guarded(async () => { await call('DELETE', `keys/${encodeURIComponent(id)}`); reload(); }, btn);
       case 'agent-edit': return guarded(() => openAgent(id), btn);
       case 'agent-embed': return showEmbedSnippet(id, btn.dataset.name);
+      case 'agent-versions': return guarded(() => openVersions(id, btn.dataset.name), btn);
       case 'agent-try': return openAgentPlayground(id, name);
       case 'agent-runs': return guarded(() => openAgentRuns(id, name), btn);
       case 'agent-close': { const a = $('#agent-detail'); if (a) a.hidden = true; return; }
@@ -632,6 +633,57 @@
     panel.append(box);
     box.querySelector('[data-action="run-close"]').addEventListener('click', () => box.remove());
     box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // Publishing, and going back. The list is append-only, so a rollback appears as a new entry.
+  async function openVersions(id, name) {
+    const versions = await call('GET', `agents/${encodeURIComponent(id)}/versions`);
+    const agent = await call('GET', `agents/${encodeURIComponent(id)}`);
+
+    $('#agent-detail-title').textContent = `${name} — versions`;
+    $('#agent-detail-body').innerHTML = `
+      ${agent.publishedVersion
+        ? `<p class="muted">Runs use <strong>version ${agent.publishedVersion}</strong>. Edits are saved to the draft and go live when you publish.</p>`
+        : '<p class="muted">Never published, so edits go live as soon as they are saved. Publishing once changes that for good.</p>'}
+      <form id="publish-form" class="inline-form">
+        <input name="note" placeholder="what changed, and why" />
+        <button class="btn primary" type="submit">Publish the draft</button>
+      </form>
+      ${versions.length
+        ? `<table><thead><tr><th>Version</th><th>Published</th><th>By</th><th>Note</th><th></th></tr></thead><tbody>
+           ${versions.map((v) => `<tr>
+             <td>v${v.version}${v.version === agent.publishedVersion ? ' <span class="tag">serving</span>' : ''}</td>
+             <td class="small">${esc(new Date(v.publishedAt).toLocaleString())}</td>
+             <td class="small">${esc(v.publishedBy || '–')}</td>
+             <td class="small muted">${esc(v.note || '')}${v.rolledBackFrom ? ` <span class="tag">from v${v.rolledBackFrom}</span>` : ''}</td>
+             <td class="actions">${v.version === agent.publishedVersion ? '' :
+               `<button class="btn small" data-action="agent-rollback" data-id="${esc(id)}" data-version="${v.version}">Roll back to this</button>`}</td>
+           </tr>`).join('')}</tbody></table>`
+        : '<p class="empty">Nothing published yet.</p>'}`;
+
+    agentDetail.hidden = false;
+    agentDetail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    $('#publish-form').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const note = formData(ev.target).note;
+      guarded(async () => {
+        const version = await call('POST', `agents/${encodeURIComponent(id)}/publish`, { note: note || null });
+        toast(`Published v${version.version}.`);
+        await openVersions(id, name);
+      });
+    });
+
+    $('#agent-detail-body').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-action="agent-rollback"]');
+      if (!btn) return;
+      if (!confirm(`Serve version ${btn.dataset.version} again? It is published as a new version; nothing is deleted.`)) return;
+      guarded(async () => {
+        const version = await call('POST', `agents/${encodeURIComponent(id)}/rollback/${btn.dataset.version}`, {});
+        toast(`Rolled back; now serving v${version.version}.`);
+        await openVersions(id, name);
+      });
+    });
   }
 
   // The snippet that puts an agent on one of the host's own pages.

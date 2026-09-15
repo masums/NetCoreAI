@@ -23,6 +23,27 @@ public interface IAgentService
 
     IAsyncEnumerable<AgentEvent> RunStreamingAsync(string agentId, AgentRequest request, AgentCaller caller, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Freezes the agent as it is now, and serves that from here on.
+    /// </summary>
+    /// <remarks>
+    /// The first publish is the moment an agent stops running as it is edited. There is no way back to
+    /// that, deliberately: an agent that sometimes serves its draft and sometimes does not would be worse
+    /// than either rule on its own.
+    /// </remarks>
+    Task<AgentVersion> PublishAsync(string agentId, string? note = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Publishes an earlier version again, as a new one.</summary>
+    Task<AgentVersion> RollbackAsync(string agentId, int toVersion, string? note = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Every published version of an agent, newest first.</summary>
+    Task<IReadOnlyList<AgentVersion>> ListVersionsAsync(string agentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The definition that would actually run: the published version when there is one, else the draft.
+    /// </summary>
+    Task<AgentDefinition?> GetForRunAsync(string agentId, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<RunTrace>> ListRunsAsync(string? agentId = null, int limit = 50, CancellationToken cancellationToken = default);
 
     Task<RunTrace?> GetRunAsync(string id, CancellationToken cancellationToken = default);
@@ -59,6 +80,7 @@ internal sealed partial class AgentService(
     NetCoreAI.Security.IAuditLog audit,
     NetCoreAI.Tenancy.ITenantQuotas quotas,
     NetCoreAI.Tenancy.ITenantAccessor tenants,
+    IServiceProvider users,
     Microsoft.Extensions.Options.IOptions<NetCoreAIOptions> options,
     ILogger<AgentService> logger) : IAgentService
 {
@@ -101,8 +123,13 @@ internal sealed partial class AgentService(
             }
         }
 
-        var saved = agent with { UpdatedAt = DateTimeOffset.UtcNow };
-        var existed = await store.Agents.GetAsync(saved.Id, cancellationToken).ConfigureAwait(false) is not null;
+        var previous = await store.Agents.GetAsync(agent.Id, cancellationToken).ConfigureAwait(false);
+        var existed = previous is not null;
+
+        // The published pointer is not the editor's to set. Taking it from the request would mean every
+        // save of a draft silently unpublished the agent — which is the opposite of what publishing is
+        // for, and would look like the change going live.
+        var saved = agent with { UpdatedAt = DateTimeOffset.UtcNow, PublishedVersion = previous?.PublishedVersion };
         if (!existed)
         {
             // Only a new one counts. Editing the agent that took a tenant to its limit must keep working,
@@ -130,7 +157,103 @@ internal sealed partial class AgentService(
     {
         var agent = await store.Agents.GetAsync(id, cancellationToken).ConfigureAwait(false);
         await store.Agents.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
+
+        // The history goes with the agent. Keeping versions of something that no longer exists would let
+        // a new agent reusing the id inherit a stranger's past.
+        await store.AgentVersions.DeleteAllAsync(id, cancellationToken).ConfigureAwait(false);
         await audit.WriteAsync(NetCoreAI.Security.AuditAction.Deleted, NetCoreAI.Security.AuditEntity.Agent, id, agent?.Name, cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<AgentVersion> PublishAsync(string agentId, string? note = null, CancellationToken cancellationToken = default)
+    {
+        var draft = await store.Agents.GetAsync(agentId, cancellationToken).ConfigureAwait(false)
+            ?? throw new NetCoreAIException($"No agent with id '{agentId}'.");
+
+        return await PublishCoreAsync(draft, note, rolledBackFrom: null, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<AgentVersion> RollbackAsync(string agentId, int toVersion, string? note = null, CancellationToken cancellationToken = default)
+    {
+        var previous = await store.AgentVersions.GetAsync(agentId, toVersion, cancellationToken).ConfigureAwait(false)
+            ?? throw new NetCoreAIException($"Agent '{agentId}' has no version {toVersion}.");
+
+        // Published forward as a new version rather than by deleting the ones after it. The history is a
+        // record of what happened, not of what somebody would now prefer to have happened — and the
+        // rollback itself is a thing that happened.
+        var restored = await PublishCoreAsync(previous.Definition, note ?? $"Rolled back to version {toVersion}.", toVersion, cancellationToken)
+            .ConfigureAwait(false);
+
+        // The draft follows, so the editor shows what is now serving rather than the change that was
+        // rolled back — which is the state somebody reaching for rollback wants to be in.
+        await store.Agents.UpsertAsync(
+            previous.Definition with { PublishedVersion = restored.Version, UpdatedAt = DateTimeOffset.UtcNow },
+            cancellationToken).ConfigureAwait(false);
+
+        return restored;
+    }
+
+    public Task<IReadOnlyList<AgentVersion>> ListVersionsAsync(string agentId, CancellationToken cancellationToken = default) =>
+        store.AgentVersions.ListAsync(agentId, cancellationToken);
+
+    public async Task<AgentDefinition?> GetForRunAsync(string agentId, CancellationToken cancellationToken = default)
+    {
+        var agent = await store.Agents.GetAsync(agentId, cancellationToken).ConfigureAwait(false);
+        if (agent?.PublishedVersion is not { } published)
+        {
+            // Never published, so the draft is what runs — which is what every agent did before versioning
+            // existed, and what a draft should do.
+            return agent;
+        }
+
+        var version = await store.AgentVersions.GetAsync(agentId, published, cancellationToken).ConfigureAwait(false);
+        if (version is null)
+        {
+            // The agent says it has a published version and the history does not have it. Refusing beats
+            // silently serving the draft, which is the one thing publishing promised would not happen.
+            throw new NetCoreAIException(
+                $"Agent '{agentId}' is published at version {published}, but that version is missing from its history. Publish again to fix it.");
+        }
+
+        // Enabled comes from the draft on purpose: switching an agent off is an operational act, and
+        // having to publish to stop something is the wrong way round in an incident.
+        return version.Definition with { Enabled = agent.Enabled, PublishedVersion = published };
+    }
+
+    private async Task<AgentVersion> PublishCoreAsync(AgentDefinition definition, string? note, int? rolledBackFrom, CancellationToken cancellationToken)
+    {
+        var existing = await store.AgentVersions.ListAsync(definition.Id, cancellationToken).ConfigureAwait(false);
+        var next = existing.Count == 0 ? 1 : existing.Max(v => v.Version) + 1;
+
+        var version = new AgentVersion
+        {
+            AgentId = definition.Id,
+            Version = next,
+
+            // The version number is inside the snapshot too, so a definition read back from history knows
+            // which version it is without being told.
+            Definition = definition with { PublishedVersion = next },
+            Note = note,
+            RolledBackFrom = rolledBackFrom,
+            PublishedBy = NetCoreAI.Security.AuditLog.Actor((users.GetService(typeof(Microsoft.AspNetCore.Http.IHttpContextAccessor)) as Microsoft.AspNetCore.Http.IHttpContextAccessor)?.HttpContext?.User).Name,
+        };
+
+        await store.AgentVersions.AddAsync(version, cancellationToken).ConfigureAwait(false);
+        await store.Agents.UpsertAsync(
+            (await store.Agents.GetAsync(definition.Id, cancellationToken).ConfigureAwait(false) ?? definition)
+                with { PublishedVersion = next },
+            cancellationToken).ConfigureAwait(false);
+
+        logger.LogInformation("Published agent {Agent} as version {Version}.", definition.Id, next);
+
+        await audit.WriteAsync(
+            NetCoreAI.Security.AuditAction.Updated,
+            NetCoreAI.Security.AuditEntity.Agent,
+            definition.Id,
+            definition.Name,
+            rolledBackFrom is { } from ? $"rolled back to version {from}, published as {next}" : $"published version {next}",
+            cancellationToken).ConfigureAwait(false);
+
+        return version;
     }
 
     public Task<IReadOnlyList<RunTrace>> ListRunsAsync(string? agentId = null, int limit = 50, CancellationToken cancellationToken = default) =>
@@ -166,7 +289,25 @@ internal sealed partial class AgentService(
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(caller);
 
-        var agent = await store.Agents.GetAsync(agentId, cancellationToken).ConfigureAwait(false);
+        // The published version when there is one. An edit somebody is still working on must not reach
+        // the people using the agent.
+        AgentDefinition? agent = null;
+        string? resolveError = null;
+        try
+        {
+            agent = await GetForRunAsync(agentId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (NetCoreAIException ex)
+        {
+            resolveError = ex.Message;
+        }
+
+        if (resolveError is not null)
+        {
+            yield return new AgentEvent(AgentEvent.ErrorType) { Error = resolveError };
+            yield break;
+        }
+
         if (agent is null)
         {
             yield return new AgentEvent(AgentEvent.ErrorType) { Error = $"No agent with id '{agentId}'." };

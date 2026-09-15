@@ -29,6 +29,7 @@ public sealed class SqliteMetadataStore : IMetadataStore, ISnapshotSource
         Runs = new SqliteRunStore(factory);
         ApiKeys = new SqliteApiKeyStore(factory);
         Audit = new SqliteAuditStore(factory);
+        AgentVersions = new SqliteAgentVersionStore(factory);
     }
 
     public IModelStore Models { get; }
@@ -49,6 +50,8 @@ public sealed class SqliteMetadataStore : IMetadataStore, ISnapshotSource
     public IApiKeyStore ApiKeys { get; }
 
     public IAuditStore Audit { get; }
+
+    public IAgentVersionStore AgentVersions { get; }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {

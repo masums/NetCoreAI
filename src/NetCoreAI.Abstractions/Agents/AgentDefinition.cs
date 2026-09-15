@@ -100,6 +100,17 @@ public sealed record AgentDefinition
     /// </summary>
     public IReadOnlyList<string> AclTags { get; init; } = [];
 
+    /// <summary>
+    /// The version currently serving runs, or null while this agent has never been published.
+    /// </summary>
+    /// <remarks>
+    /// An agent nobody has published runs as it is edited, which is what a draft should do and what every
+    /// agent did before versioning existed. Publishing once changes that for good: from then on this
+    /// record is the draft, and runs use the published version until somebody publishes again. Opting in
+    /// is the act of publishing rather than a setting, because a flag nobody finds is a feature nobody has.
+    /// </remarks>
+    public int? PublishedVersion { get; init; }
+
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 
     public DateTimeOffset? UpdatedAt { get; init; }

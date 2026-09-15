@@ -154,7 +154,7 @@ Not a product phase, but required before Phase 1 can start.
 - [ ] Hybrid search (BM25 + vector, reciprocal rank fusion)
 - [ ] Re-ranking with local cross-encoder model
 - [x] Guardrails (§7.7.3): input/output content rules, PII masking, prompt-injection heuristics, per-role tool allow-list, token/cost budgets — *all off by default; budgets are per process like the API key rate limiter, and the injection heuristics are a tripwire rather than a wall — see [docs/guides/guardrails.md](docs/guides/guardrails.md)*
-- [ ] Agent versioning & publishing (§7.7.5): draft → published, rollback, changelog, environment export/import
+- [x] Agent versioning & publishing (§7.7.5): draft → published, rollback, changelog, environment export/import — *an agent nobody has published runs as it is edited; publishing once freezes that for good. Rollback publishes the old definition forward as a new version rather than deleting history. Switching an agent off does not need a publish — see [docs/guides/agents.md](docs/guides/agents.md)*
 - [ ] Tool groups & versioning (§7.6.5): toolsets, versioned definitions, deprecation warnings
 - [x] Built-in tools (§7.6.6): knowledge search, date/time, calculator, allow-listed HTTP fetch, read-only SQL query with row limits — *the two with outside reach are not registered at all until configured, rather than present and refusing*
 - [x] Audit log (who created/changed/deleted models/tools/agents/KBs, who ran what) — *append-only, on by default, kept a year; runs are opt-in because they already have traces, but a guardrail refusal is always recorded; a write that fails never fails the thing it was recording*
