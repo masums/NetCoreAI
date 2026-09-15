@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>NetCoreAI GGUF model provider on LLamaSharp (CPU backend included; add LLamaSharp.Backend.Cuda12/Vulkan/Metal for GPU).</Description>
+    <Description>NetCoreAI GGUF model provider on LLamaSharp. Your project must also reference a native backend package — LLamaSharp.Backend.Cpu, or LLamaSharp.Backend.Cuda12 or LLamaSharp.Backend.Vulkan for GPU — because NuGet does not pass build targets through an intermediate package and that is how the native binaries are delivered.</Description>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../NetCoreAI.Core/NetCoreAI.Core.csproj" />

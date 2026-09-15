@@ -50,6 +50,7 @@ All model access goes through [`Microsoft.Extensions.AI`](https://learn.microsof
 ```bash
 dotnet add package NetCoreAI
 dotnet add package NetCoreAI.Backend.Gguf          # runs GGUF models via LLamaSharp
+dotnet add package LLamaSharp.Backend.Cpu          # the native llama.cpp library it calls (required)
 dotnet add package NetCoreAI.Backend.Onnx          # runs ONNX models via ONNX Runtime GenAI
 ```
 
@@ -101,7 +102,7 @@ public class SupportBot(IAgentClient agents)
 | `NetCoreAI.Dashboard` | Embedded management UI and management API |
 | `NetCoreAI.Client` | `IAgentClient`, `IKnowledgeClient` — in-process or over HTTP |
 | `NetCoreAI.Documents` | Document extractors: PDF, DOCX, PPTX, XLSX, HTML (text, Markdown, CSV and JSON need no extra package) |
-| `NetCoreAI.Backend.Gguf` | LLamaSharp provider; `.Cuda12` / `.Vulkan` add GPU native backends |
+| `NetCoreAI.Backend.Gguf` | LLamaSharp provider. **Also reference `LLamaSharp.Backend.Cpu`** (or `.Cuda12` / `.Vulkan`) in your own project: NuGet does not pass build targets through an intermediate package, and that is how the native binaries arrive |
 | `NetCoreAI.Backend.Onnx` | ONNX Runtime GenAI provider (CPU / DirectML / CUDA) |
 | `NetCoreAI.Backend.Safetensors` | Convert-on-import (to GGUF/ONNX) and, later, native execution |
 | `NetCoreAI.Backend.Ollama` | Ollama provider (local or LAN) |
@@ -137,7 +138,7 @@ Every provider, vector store, document extractor and data source is a separate p
 | macOS arm64 | ✅ | Metal |
 | Windows arm64 (NPU) | planned | planned |
 
-Runs under Kestrel, IIS, Docker and Azure App Service (CPU). GPU acceleration requires the matching backend package (e.g. `NetCoreAI.Backend.Gguf.Cuda12`).
+Runs under Kestrel, IIS, Docker and Azure App Service (CPU). GPU acceleration requires the matching native backend package referenced from your own project (e.g. `LLamaSharp.Backend.Cuda12`).
 
 ## Roadmap
 

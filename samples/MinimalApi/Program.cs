@@ -12,6 +12,9 @@ builder.Services.AddNetCoreAI(o =>
     o.DataDirectory = "./netcoreai";
     o.Dashboard.AllowAnonymous = true;   // sample only: no auth in this app. Set an authorization policy in real hosts.
 })
+// A local GGUF file needs a backend that can read one. Without this the framework still runs, but
+// importing a .gguf from the Model Hub fails: nothing registered recognises the format.
+.AddGgufBackend()
 .AddOllamaBackend()
 .AddOpenAICompatibleBackend()
 .AddAnthropicBackend();
