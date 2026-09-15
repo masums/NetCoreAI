@@ -31,6 +31,46 @@ internal sealed class ModelRegistry : IModelRegistry, IHostedService
 
     public event EventHandler<ModelEntry>? Changed;
 
+    /// <summary>
+    /// Drops a loaded model whose settings now point somewhere else.
+    /// </summary>
+    /// <remarks>
+    /// The lifecycle manager caches a loaded model by its id. Without this, repointing a model at a
+    /// different connection leaves every call going to the old one until somebody restarts the host — and
+    /// the dashboard shows the new setting the whole time, so it reads as a provider fault rather than a
+    /// stale client.
+    /// </remarks>
+    private async Task UnloadIfRepointedAsync(ModelDescriptor descriptor, CancellationToken cancellationToken)
+    {
+        if (!_lifecycle.TryGetLoaded(descriptor.Id, out _))
+        {
+            return;
+        }
+
+        var previous = await _store.Models.GetAsync(descriptor.Id, cancellationToken).ConfigureAwait(false);
+        if (previous is null || !LoadedFromChanged(previous, descriptor))
+        {
+            return;
+        }
+
+        _logger.LogInformation("{ModelId} now points somewhere else; unloading the copy loaded from the old settings.", descriptor.Id);
+        await _lifecycle.UnloadAsync(descriptor.Id, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Whether the two descriptors would load differently.
+    /// </summary>
+    /// <remarks>
+    /// Only what the loaded client is built from. A rename, a new tag or a changed default temperature all
+    /// leave the same client serving the same model, and unloading for those would throw away a warm local
+    /// model because somebody fixed a typo.
+    /// </remarks>
+    private static bool LoadedFromChanged(ModelDescriptor before, ModelDescriptor after) =>
+        !string.Equals(before.ProviderId, after.ProviderId, StringComparison.Ordinal)
+        || !string.Equals(before.ConnectionId, after.ConnectionId, StringComparison.Ordinal)
+        || !string.Equals(before.RemoteModelId, after.RemoteModelId, StringComparison.Ordinal)
+        || !string.Equals(before.Path, after.Path, StringComparison.Ordinal);
+
     public async Task<IReadOnlyList<ModelEntry>> ListAsync(CancellationToken cancellationToken = default)
     {
         var models = await _store.Models.ListAsync(cancellationToken).ConfigureAwait(false);
@@ -59,6 +99,7 @@ internal sealed class ModelRegistry : IModelRegistry, IHostedService
             }
         }
 
+        await UnloadIfRepointedAsync(descriptor, cancellationToken).ConfigureAwait(false);
         await _store.Models.UpsertAsync(descriptor, cancellationToken).ConfigureAwait(false);
         _status[descriptor.Id] = (ModelStatus.Available, null);
         Changed?.Invoke(this, ToEntry(descriptor));
@@ -82,6 +123,7 @@ internal sealed class ModelRegistry : IModelRegistry, IHostedService
     {
         ArgumentNullException.ThrowIfNull(model);
         _ = await _store.Models.GetAsync(model.Id, cancellationToken).ConfigureAwait(false) ?? throw new ModelNotFoundException(model.Id);
+        await UnloadIfRepointedAsync(model, cancellationToken).ConfigureAwait(false);
         await _store.Models.UpsertAsync(model, cancellationToken).ConfigureAwait(false);
         Changed?.Invoke(this, ToEntry(model));
         return model;

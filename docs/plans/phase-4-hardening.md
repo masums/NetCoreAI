@@ -25,3 +25,11 @@
 
 ## Release gates for 1.0
 Abstractions API frozen (PublicAPI analyzers), conformance suite public, security review of tool invocation + secrets, load test (100 concurrent sessions on a remote provider), upgrade test from 0.x SQLite schema.
+
+**Upgrading a SQLite database — partly done.** A database written by an older version now gains any table
+and index this version needs, and is refused by name when a table it already has is missing columns. That
+covers what the row design actually produces: a payload of JSON plus the few columns worth filtering on
+means a feature adds a table far more often than it changes one. Adding a *column* to an existing table is
+still not handled, and is what the remaining gate covers — real EF migrations, once the schema is frozen.
+Found by running the sample against a data directory from an earlier build: it died on
+`no such table: Jobs`, at whichever query happened to run first.

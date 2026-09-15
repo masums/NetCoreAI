@@ -27,6 +27,20 @@ Metadata lives in `{DataDirectory}/netcoreai.db` (SQLite, WAL). Vector data live
 
 For load-balanced deployments see [ADR-0003](../adr/0003-default-metadata-store.md): register a shared store instead (SQL Server or PostgreSQL, Phase 4) and put the data directory on shared storage. A warning is logged when several instances write to one SQLite file.
 
+### Upgrading
+
+A database written by an older NetCoreAI gains whatever tables and indexes the new version needs, on the
+first start after the upgrade. What was already there is left alone, and the added objects are named in the
+log so you can see what happened.
+
+What is *not* handled is a table whose columns have changed. That cannot be guessed at without risking your
+data, so startup stops and names the table and the columns instead. Before 1.0 the answer is to delete
+`netcoreai.db` and its `-wal` and `-shm` files and let it be recreated: you lose saved settings,
+conversations, knowledge bases and agents, but nothing on disk — models and uploaded documents are files,
+and are re-indexed. After 1.0 this becomes a real migration; the schema is not frozen yet.
+
+Back the database up before upgrading if any of that would hurt. It is one file.
+
 ### Watching disk
 
 The Storage page (and `GET /api/storage`) reports what each local model costs, what the data directory totals, and how much room is left on the volume. Remote models cost nothing locally and are left out. A model whose files have gone missing is listed as such rather than quietly dropped, which is the usual sign that a data directory moved between deployments.

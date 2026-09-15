@@ -50,8 +50,20 @@ public sealed class SqliteMetadataStore : IMetadataStore
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        // Schema is created from the model; migrations are introduced once the schema is frozen (pre-1.0 we recreate on breaking change).
-        await db.Database.EnsureCreatedAsync(cancellationToken).ConfigureAwait(false);
+        // Schema is created from the model; real migrations arrive once it is frozen for 1.0.
+        if (!await db.Database.EnsureCreatedAsync(cancellationToken).ConfigureAwait(false))
+        {
+            // The database was already there, so it may predate a table this version needs. EnsureCreated
+            // will not add one, and the host would otherwise die at whichever query ran first.
+            var created = await SchemaUpgrade.ApplyAsync(db, cancellationToken).ConfigureAwait(false);
+            if (created.Count > 0)
+            {
+                _logger.LogInformation(
+                    "Upgraded the NetCoreAI schema: added {Count} object(s) — {Objects}.",
+                    created.Count, string.Join(", ", created));
+            }
+        }
+
         await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;", cancellationToken).ConfigureAwait(false);
 
         // Multi-instance detection (ADR-0003).
