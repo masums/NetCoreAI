@@ -56,6 +56,10 @@ public static class NetCoreAIEndpointRouteBuilderExtensions
             return Results.Stream(stream!, contentType);
         }).AllowAnonymous().ExcludeFromDescription();
 
+        // The OpenAI wire format, under the same group so it inherits the same authorization and the same
+        // tenancy. Outside /api, because it is somebody else's shape rather than ours.
+        OpenAiCompatApi.Map(group);
+
         PagesApi.Map(group);
         OpenApiDocument.Map(group, path);
         var api = group.MapGroup("/api");

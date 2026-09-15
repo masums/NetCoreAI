@@ -32,7 +32,16 @@ reach it would put it in every host that references NetCoreAI. `AddAlertSink(lam
 mailer in one line instead. Most of the work here is not noticing trouble but declining to mention it
 twice — the same condition alerts once per quiet period, and an error rate is ignored until enough runs
 have happened for it to mean anything.
-9. **Compatibility & embedding** — OpenAI-compatible `/v1/chat/completions` + `/v1/embeddings` (`model` = alias or agent id), embeddable chat widget (Razor component + JS snippet, CSS variables).
+9. **Compatibility & embedding** — the OpenAI-compatible endpoint is done; the embeddable chat widget is outstanding.
+
+A translation layer rather than a second API: everything NetCoreAI can do that OpenAI's shape cannot
+express stays on the native API, and nothing there invents a field to carry it. `model` accepts a model, an
+alias or an agent id, which is the point — a client written against OpenAI gets an agent's prompt, tools and
+knowledge bases by changing a string. Only the last user message is taken as the question, because clients
+resend the whole conversation and an agent keeps its own memory. Errors use OpenAI's envelope rather than a
+problem document, since a client reads `error.message` and would otherwise report "an error occurred" for
+everything. Fields the host cannot honour are ignored rather than refused. Not implemented: function
+calling through this endpoint, `n > 1`, logprobs, vision.
 10. **Playground P1** — compare mode (2–3 models), attachments (text/PDF inline extraction).
 11. **Stores** — `VectorStore.Postgres` (pgvector), `VectorStore.Qdrant`, `Storage.SqlServer`, `Storage.Postgres`, migration tool between vector stores.
 12. **Model ops** — testing & benchmarks (tokens/s, TTFT, memory, history), version updates with rollback, backup/restore.
