@@ -283,9 +283,29 @@
   watchDownloads();
 
   // Select-all for the reclaimable files list.
-  $('#orphan-all')?.addEventListener('change', (ev) => {
-    $$('.orphan').forEach((c) => { c.checked = ev.target.checked; });
-  });
+  const orphanAll = $('#orphan-all');
+  if (orphanAll) {
+    // The buttons say what pressing them would reclaim, and stay disabled until that is something.
+    // Without this the only feedback for "nothing selected" was a toast after pressing.
+    function refreshReclaim() {
+      const picked = $$('.orphan:checked');
+      const bytes = picked.reduce((sum, c) => sum + Number(c.dataset.size || 0), 0);
+      $$('[data-reclaim]').forEach((b) => {
+        b.disabled = picked.length === 0;
+        b.textContent = picked.length === 0
+          ? 'Reclaim selected'
+          : `Reclaim ${fmtBytes(bytes)} (${picked.length} file${picked.length === 1 ? '' : 's'})`;
+      });
+      orphanAll.checked = picked.length > 0 && picked.length === $$('.orphan').length;
+    }
+
+    orphanAll.addEventListener('change', (ev) => {
+      $$('.orphan').forEach((c) => { c.checked = ev.target.checked; });
+      refreshReclaim();
+    });
+    $$('.orphan').forEach((c) => c.addEventListener('change', refreshReclaim));
+    refreshReclaim();
+  }
 
   // ---------- tools ----------
   const toolDetail = $('#tool-detail');

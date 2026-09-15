@@ -74,6 +74,15 @@
 <section class="card">
     <div class="toolbar">
         <h2>Reclaimable files</h2>
+        <span class="spacer"></span>
+        @if (_orphans.Count > 0)
+        {
+            @* Up here rather than only under the table. With nine files the only action sat below the
+               fold, so the section read as a list with nothing you could do about it. The label carries
+               the size because "reclaim" is a question about how much space, and a button that says
+               nothing costs a scroll to the top of the page to find out. *@
+            <button class="btn danger" data-action="delete-orphans" data-reclaim disabled>Reclaim selected</button>
+        }
         <button class="btn small" data-action="scan-orphans">Rescan</button>
     </div>
     <p class="muted">Files under <code>models/</code> that no registered model claims: leftovers from a removed model, a manual copy, or an interrupted download. Nothing a model points at can be deleted here, even if this list is stale.</p>
@@ -90,7 +99,7 @@
                 @foreach (var o in _orphans)
                 {
                     <tr>
-                        <td><input type="checkbox" class="orphan" value="@o.Path" /></td>
+                        <td><input type="checkbox" class="orphan" value="@o.Path" data-size="@o.SizeBytes" /></td>
                         <td class="mono small">@o.Path</td>
                         <td>@Fmt.Bytes(o.SizeBytes)</td>
                         <td>@Fmt.Ago(o.ModifiedAt)</td>
@@ -99,7 +108,9 @@
                 }
             </tbody>
         </table>
-        <button class="btn danger" data-action="delete-orphans">Delete selected</button>
+        @* Kept at the foot as well: after scrolling a long list, the nearest button should be the one
+           you just decided to press. *@
+        <button class="btn danger" data-action="delete-orphans" data-reclaim disabled>Reclaim selected</button>
     }
 </section>
 
