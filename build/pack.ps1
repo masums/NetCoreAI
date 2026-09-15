@@ -19,6 +19,14 @@ try {
   dotnet pack "NetCoreAI.slnx" --no-build -c $Configuration -o "artifacts/packages"
   if ($LASTEXITCODE -ne 0) { throw "pack failed ($LASTEXITCODE)" }
 
+  # Drop the cached extraction of every NetCoreAI package before restoring the samples. Versions come
+  # from commit height, so two packs at the same commit produce the same version number with different
+  # content — and NuGet, which caches by version id and never re-extracts, then hands the samples the
+  # older build. That is silent: everything restores, builds and runs, against code from a previous pack.
+  # It cost an afternoon once, verifying a fix against a sample that did not contain it.
+  Get-ChildItem "$env:USERPROFILE/.nuget/packages" -Directory -Filter "netcoreai*" -ErrorAction SilentlyContinue |
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
   dotnet restore "samples/NetCoreAI.Samples.slnx" --force
   if ($LASTEXITCODE -ne 0) { throw "the samples could not restore against the packed feed ($LASTEXITCODE)" }
 } finally { Pop-Location }

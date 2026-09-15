@@ -7,7 +7,7 @@ Every model, local or remote, is served through `IModelProvider` and surfaces as
 | Package | Provider id | Kind | Notes |
 |---|---|---|---|
 | `NetCoreAI.Backend.Ollama` | `ollama` | Remote | Local or LAN Ollama. Lists models from the tags endpoint; capabilities (tools, vision, embeddings) read from the show endpoint. |
-| `NetCoreAI.Backend.OpenAICompatible` | `openai` | Remote | Presets: OpenAI, Azure OpenAI, vLLM, LM Studio, Groq, DeepSeek, OpenRouter, Together, Mistral, custom. |
+| `NetCoreAI.Backend.OpenAICompatible` | `openai` | Remote | Presets: OpenAI, Azure OpenAI, Google Gemini, vLLM, LM Studio, Groq, DeepSeek, OpenRouter, Together, Mistral, custom. |
 | `NetCoreAI.Backend.Anthropic` | `anthropic` | Remote | Claude through the official SDK. No embeddings: pair with another model for the `embed` alias. |
 | `NetCoreAI.Backend.Gguf` | `gguf` | Local | llama.cpp through LLamaSharp. Reads the GGUF header for capabilities and memory estimates, applies the file's chat template, constrains JSON output with a GBNF grammar. Needs `LLamaSharp.Backend.Cpu` (or `.Cuda12` / `.Vulkan`) referenced from your own project. |
 | `NetCoreAI.Backend.Onnx` | `onnx` | Local | ONNX Runtime GenAI for generative models, ONNX Runtime for sentence-transformers embedding exports. CPU included; add the ORT GenAI CUDA or DirectML package for GPU. |
@@ -40,6 +40,28 @@ Point a model at a `.gguf` file and the provider reads its header to answer capa
 **Chat template.** Taken from the GGUF header, so Qwen, Llama and Phi models each get their own markers. Set `ChatTemplate` on the model to override it; a model with no template falls back to a plain transcript.
 
 **Structured output.** `ChatResponseFormat.ForJsonSchema` is compiled to a GBNF grammar, so llama.cpp can only sample tokens that keep the output valid. This constrains generation rather than validating afterwards, so there is no retry loop.
+
+### Google Gemini
+
+A preset on the OpenAI-compatible provider rather than a backend of its own, because Gemini publishes a
+real OpenAI-shaped API. Base URL `https://generativelanguage.googleapis.com/v1beta/openai`, an API key
+from AI Studio, and chat, streaming, model listing and embeddings all work.
+
+Two things are worth knowing before you pick it:
+
+**No tool calling, and NetCoreAI says so rather than letting you find out.** Gemini returns a
+`thought_signature` inside each tool call and refuses the following turn without it; the
+`Microsoft.Extensions.AI` OpenAI adapter drops that vendor field. A single call works and the turn after
+it does not — and an agent loop is multi-turn by definition. So Gemini chat models are registered without
+the tool-calling capability, which keeps agents from choosing one and failing on their second step. A
+tripwire test fails when Google or Microsoft fixes this, so the restriction cannot outlive its reason.
+
+**Embeddings are 3072-dimension** (`gemini-embedding-001`), not the 1536 that most OpenAI-compatible
+services use. A knowledge base is built around its embedding model, so this is not a setting to change
+later.
+
+Gemini's listing returns ids as `models/gemini-3.6-flash` while its documentation uses the bare name.
+Both work for generation, and NetCoreAI treats them the same.
 
 **The native library is a separate reference, and it goes in your project.** `NetCoreAI.Backend.Gguf`
 is the provider; the llama.cpp binaries come from `LLamaSharp.Backend.Cpu`, and that package delivers

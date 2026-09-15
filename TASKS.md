@@ -43,7 +43,7 @@ Not a product phase, but required before Phase 1 can start.
 
 ### Remote Providers
 - [x] Ollama provider via `OllamaSharp` (§7.1.5): model listing (`/api/tags`), chat/embeddings/tool-calling/streaming
-- [x] OpenAI-compatible provider: base URL + API key config, presets (OpenAI, Azure OpenAI, vLLM, LM Studio, Groq, DeepSeek, OpenRouter, Together, Mistral, custom)
+- [x] OpenAI-compatible provider: base URL + API key config, presets (OpenAI, Azure OpenAI, Google Gemini, vLLM, LM Studio, Groq, DeepSeek, OpenRouter, Together, Mistral, custom)
 - [x] Anthropic provider: Messages API, tool use, streaming, system prompts, extended context, configurable base URL for compatible proxies
 - [x] Provider connections: multiple named connections per type, connection test (auth/reachability/model list), health status
 - [x] Secrets storage via ASP.NET Core Data Protection; env-var override for containers
@@ -186,7 +186,7 @@ Not a product phase, but required before Phase 1 can start.
 - [ ] Vision input support (P2 across chat + agents)
 - [ ] Additional data sources: folder watch, web URL/sitemap crawl, SharePoint/Google Drive/S3
 - [ ] Additional Hub sources: Ollama library, ModelScope, private registries via `IModelSource`
-- [ ] Additional remote providers: Google Gemini, AWS Bedrock, Azure AI Foundry
+- [~] Additional remote providers: Google Gemini, AWS Bedrock, Azure AI Foundry — *Gemini is done as an OpenAI-compatible preset rather than a backend of its own, because it publishes a real OpenAI-shaped API: chat, streaming, listing and 3072-dimension embeddings all verified live. Its chat models are registered **without** tool calling, because a multi-turn tool loop cannot work through that endpoint — see [docs/guides/providers.md](docs/guides/providers.md). **Bedrock and Azure AI Foundry are outstanding.***
 - [ ] Query rewriting / HyDE for retrieval
 - [ ] Long-term user memory via KB
 - [ ] Format converters as plugins (`IModelConverter`)

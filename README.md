@@ -32,7 +32,7 @@ From there you get:
 
 - **Model Hub** — browse Hugging Face from the dashboard, download GGUF / ONNX / Safetensors models with resumable, verified downloads, or import from disk for air-gapped installs.
 - **Local model management** — hardware detection, "will it fit" checks, load/unload, aliases, per-model defaults, idle unloading.
-- **Remote providers as peers** — Ollama, any OpenAI-compatible endpoint (OpenAI, Azure, vLLM, LM Studio, Groq, DeepSeek, OpenRouter…) and Anthropic, all selectable next to local models with mixed fallback chains.
+- **Remote providers as peers** — Ollama, any OpenAI-compatible endpoint (OpenAI, Azure, Gemini, vLLM, LM Studio, Groq, DeepSeek, OpenRouter…) and Anthropic, all selectable next to local models with mixed fallback chains.
 - **Chat playground** — streaming chat with any model, parameter tuning, saved conversations.
 - **RAG knowledge bases** — ingest files, SQL tables, REST endpoints or documents pushed from your own code; chunk, embed, retrieve with citations and per-user ACL filtering. SQLite vector store out of the box, Postgres/Qdrant optional.
 - **Tool designer** — your existing controllers and minimal-API endpoints are auto-discovered and can be exposed to models as tools in minutes, with locked parameters and identity propagation.
