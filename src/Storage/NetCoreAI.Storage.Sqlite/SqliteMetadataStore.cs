@@ -31,6 +31,7 @@ public sealed class SqliteMetadataStore : IMetadataStore, ISnapshotSource
         Audit = new SqliteAuditStore(factory);
         AgentVersions = new SqliteAgentVersionStore(factory);
         ToolGroups = new SqliteToolGroupStore(factory);
+        Evaluations = new SqliteEvaluationStore(factory);
     }
 
     public IModelStore Models { get; }
@@ -55,6 +56,8 @@ public sealed class SqliteMetadataStore : IMetadataStore, ISnapshotSource
     public IAgentVersionStore AgentVersions { get; }
 
     public IToolGroupStore ToolGroups { get; }
+
+    public IEvaluationStore Evaluations { get; }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {

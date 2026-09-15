@@ -10,7 +10,7 @@
 ## Work packages (grouped; each independently shippable as 0.x minors)
 1. **Safetensors convert-on-import** — `IModelConverter`, converter package, Hub labels "runs natively / will be converted", job with progress.
 2. **Routing rules** — `RoutingPolicy` (prompt length, tool requirement, user role, cost/latency budgets) evaluated before `FallbackChatClient`.
-3. **Retrieval quality** — hybrid search and the re-ranker seam done; KB evaluation outstanding.
+3. **Retrieval quality** — done. Hybrid search, the re-ranker seam, and KB evaluation.
 
 Hybrid is the default rather than an option, because choosing between the two is a worse default than
 having both: a vector search misses an exact token like an error code, and a keyword search misses a
@@ -34,6 +34,16 @@ feature into an availability one would be the wrong trade.
 The seam is tested with a stand-in, in the real retrieval path. The ONNX cross-encoder itself has no
 automated test: it needs a model download, and the existing model fixtures are already gated behind
 `NETCOREAI_TEST_MODELS=1`. That is recorded as outstanding rather than counted as done.
+
+Evaluation exists to make the previous two paragraphs checkable. Run one set of questions with vectors
+alone and again with hybrid and a reranker, and the difference is evidence — where a hit rate on its own is
+a number whose meaning depends entirely on how the questions were written, which the guide says out loud.
+Hit rate and MRR are reported together because they move independently and only one is about answer
+quality: retrieval that finds the right document every time, in position eight every time, has a perfect hit
+rate and produces bad answers. Questions that found nothing count as zero in the average rather than being
+left out, or a configuration that answers one question and fails the rest scores perfectly. Faithfulness is
+a model grading a model, so the judge is named in the run and an unparseable reply leaves a gap rather than
+a zero — scoring a chatty judge as "completely unsupported" would make it look like a retrieval problem.
 4. **Guardrails** — done. Content rules, PII masking, injection heuristics, per-role tool allow-lists, token and cost budgets. Two deviations from the plan above, both deliberate: they sit in the agent run rather than in chat-client middleware, because the input check has to happen before retrieval and before the model is chosen, and the tool allow-list has to narrow the list before the pipeline is built rather than refuse a call after the model has spent one on it; and there is no `IAgentEventHandler` yet, so findings are carried in the run trace and on a counter instead. Everything is off by default, and `GuardrailAction.Ignore` means genuinely off — no scanning, no trace entries. Budgets are counted per process.
 5. **Versioning & publishing** — done. Agent versioning, tool groups and versioning, and the JSON bundle.
 

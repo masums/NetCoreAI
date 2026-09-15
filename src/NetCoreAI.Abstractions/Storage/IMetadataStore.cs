@@ -41,6 +41,8 @@ public interface IMetadataStore
     IAgentVersionStore AgentVersions { get; }
 
     IToolGroupStore ToolGroups { get; }
+
+    IEvaluationStore Evaluations { get; }
 }
 
 public interface IModelStore
@@ -247,6 +249,23 @@ public interface ISnapshotSource
 {
     /// <summary>Writes a consistent copy to <paramref name="path"/>, which must not already exist.</summary>
     Task SnapshotAsync(string path, CancellationToken cancellationToken = default);
+}
+
+/// <summary>Evaluation sets and the runs made against them.</summary>
+public interface IEvaluationStore
+{
+    Task<IReadOnlyList<NetCoreAI.Knowledge.EvaluationSet>> ListSetsAsync(string? knowledgeBaseId = null, CancellationToken cancellationToken = default);
+
+    Task<NetCoreAI.Knowledge.EvaluationSet?> GetSetAsync(string id, CancellationToken cancellationToken = default);
+
+    Task UpsertSetAsync(NetCoreAI.Knowledge.EvaluationSet set, CancellationToken cancellationToken = default);
+
+    Task DeleteSetAsync(string id, CancellationToken cancellationToken = default);
+
+    /// <summary>Runs against a set, newest first. Kept so two configurations can be compared.</summary>
+    Task<IReadOnlyList<NetCoreAI.Knowledge.EvaluationRun>> ListRunsAsync(string setId, int limit = 50, CancellationToken cancellationToken = default);
+
+    Task AddRunAsync(NetCoreAI.Knowledge.EvaluationRun run, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Named sets of tools.</summary>

@@ -212,3 +212,48 @@ Set `Retrieval.Rerank = false` on a knowledge base that should skip it.
 **Not yet tested end to end.** The seam is covered — the wider net, the re-ordering, the cut, the failure
 path — but whether `bge-reranker-base` itself ranks well is checked by hand rather than by a test, because
 that needs a model download. Treat the ONNX implementation as newer than the rest of this page.
+
+## Measuring it
+
+Everything above claims to make retrieval better. This is how you check.
+
+```
+PUT  /api/evaluations/support-questions
+POST /api/evaluations/support-questions/run   { "label": "vectors only", "retrieval": { "mode": "Vector" } }
+POST /api/evaluations/support-questions/run   { "label": "hybrid + reranker" }
+GET  /api/evaluations/support-questions/runs
+```
+
+A set is questions plus the documents each one ought to retrieve. Running it reports:
+
+- **Hit rate** — the fraction of questions where an expected document came back at all.
+- **Mean reciprocal rank** — the average of 1/(position of the first correct document).
+
+Both, because they move independently and only one is about answer quality. Retrieval that finds the right
+document every time, in position eight every time, has a **perfect hit rate and produces bad answers** — a
+model given ten passages leans on the first two. MRR is the number re-ranking moves.
+
+Questions that found nothing count as **zero** in the average rather than being left out. Otherwise a
+configuration that answers one question perfectly and fails the rest scores a perfect MRR.
+
+### The point is comparison
+
+Run the same set twice with different settings and read the difference. That is evidence. A single hit
+rate is a number whose meaning depends entirely on how the questions were written — and **a set written by
+reading the documents and inventing questions about them measures whether retrieval can find a passage the
+author was looking at.** That is a far easier task than the one real users set, and such a set will flatter
+every configuration equally. Questions taken from what people actually asked are worth more than a hundred
+written to order.
+
+### Faithfulness
+
+With `generateAnswers` and a `judgeModel`, each answer is scored 0–1 on how much of it the passages
+actually support, with the judge's one-sentence reason kept beside it.
+
+This is a model grading a model. It is useful for noticing that something got *worse* between two runs. It
+is not ground truth, it is not worth arguing with a person about, and the run records which model did the
+judging for exactly that reason. A judge that replies with prose instead of a score leaves a **gap** in the
+average rather than a zero — scoring a chatty model as "completely unsupported" would make it look like a
+retrieval problem.
+
+Evaluation runs ignore access tags: they measure what the base can find, not what one person may see.

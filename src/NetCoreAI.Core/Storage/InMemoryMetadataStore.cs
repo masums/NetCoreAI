@@ -46,6 +46,7 @@ public sealed class InMemoryMetadataStore(NetCoreAI.Tenancy.ITenantAccessor? ten
     public IAuditStore Audit => Current.Audit;
     public IAgentVersionStore AgentVersions => Current.AgentVersions;
     public IToolGroupStore ToolGroups => Current.ToolGroups;
+    public IEvaluationStore Evaluations => Current.Evaluations;
 
     /// <summary>Everything one tenant owns.</summary>
     private sealed class Partition
@@ -67,6 +68,8 @@ public sealed class InMemoryMetadataStore(NetCoreAI.Tenancy.ITenantAccessor? ten
         private readonly ConcurrentDictionary<string, NetCoreAI.Security.AuditEntry> _audit = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, AgentVersion> _agentVersions = new(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, ToolGroup> _toolGroups = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, NetCoreAI.Knowledge.EvaluationSet> _evalSets = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, NetCoreAI.Knowledge.EvaluationRun> _evalRuns = new(StringComparer.OrdinalIgnoreCase);
 
         public Partition()
         {
@@ -84,6 +87,7 @@ public sealed class InMemoryMetadataStore(NetCoreAI.Tenancy.ITenantAccessor? ten
             Audit = new AuditStore(_audit);
             AgentVersions = new AgentVersionStore(_agentVersions);
             ToolGroups = new ToolGroupStore(_toolGroups);
+            Evaluations = new EvaluationStore(_evalSets, _evalRuns);
         }
 
         public IModelStore Models { get; }
@@ -100,6 +104,7 @@ public sealed class InMemoryMetadataStore(NetCoreAI.Tenancy.ITenantAccessor? ten
         public IAuditStore Audit { get; }
         public IAgentVersionStore AgentVersions { get; }
         public IToolGroupStore ToolGroups { get; }
+        public IEvaluationStore Evaluations { get; }
     }
 
     public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
@@ -192,6 +197,48 @@ public sealed class InMemoryMetadataStore(NetCoreAI.Tenancy.ITenantAccessor? ten
             }
 
             return Task.FromResult(stale.Count);
+        }
+    }
+
+    private sealed class EvaluationStore(
+        ConcurrentDictionary<string, NetCoreAI.Knowledge.EvaluationSet> sets,
+        ConcurrentDictionary<string, NetCoreAI.Knowledge.EvaluationRun> runs) : IEvaluationStore
+    {
+        public Task<IReadOnlyList<NetCoreAI.Knowledge.EvaluationSet>> ListSetsAsync(string? knowledgeBaseId = null, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<NetCoreAI.Knowledge.EvaluationSet>>([.. sets.Values
+                .Where(s => knowledgeBaseId is not { Length: > 0 } || s.KnowledgeBaseId == knowledgeBaseId)
+                .OrderBy(s => s.Name, StringComparer.Ordinal)]);
+
+        public Task<NetCoreAI.Knowledge.EvaluationSet?> GetSetAsync(string id, CancellationToken ct = default) =>
+            Task.FromResult(sets.GetValueOrDefault(id));
+
+        public Task UpsertSetAsync(NetCoreAI.Knowledge.EvaluationSet set, CancellationToken ct = default)
+        {
+            sets[set.Id] = set;
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteSetAsync(string id, CancellationToken ct = default)
+        {
+            sets.TryRemove(id, out _);
+            foreach (var key in runs.Where(r => r.Value.SetId == id).Select(r => r.Key).ToList())
+            {
+                runs.TryRemove(key, out _);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<NetCoreAI.Knowledge.EvaluationRun>> ListRunsAsync(string setId, int limit = 50, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<NetCoreAI.Knowledge.EvaluationRun>>([.. runs.Values
+                .Where(r => r.SetId == setId)
+                .OrderByDescending(r => r.RanAt)
+                .Take(Math.Clamp(limit, 1, 200))]);
+
+        public Task AddRunAsync(NetCoreAI.Knowledge.EvaluationRun run, CancellationToken ct = default)
+        {
+            runs[run.Id] = run;
+            return Task.CompletedTask;
         }
     }
 

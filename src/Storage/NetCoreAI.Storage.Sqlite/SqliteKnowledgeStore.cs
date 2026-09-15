@@ -750,3 +750,83 @@ internal sealed class SqliteToolGroupStore(IDbContextFactory<NetCoreAIDbContext>
         await db.ToolGroups.Where(g => g.Id == id).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
     }
 }
+
+
+/// <summary>Evaluation sets and their runs.</summary>
+internal sealed class SqliteEvaluationStore(IDbContextFactory<NetCoreAIDbContext> factory) : IEvaluationStore
+{
+    public async Task<IReadOnlyList<NetCoreAI.Knowledge.EvaluationSet>> ListSetsAsync(string? knowledgeBaseId = null, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var query = db.EvaluationSets.AsNoTracking().AsQueryable();
+        if (knowledgeBaseId is { Length: > 0 })
+        {
+            query = query.Where(e => e.KnowledgeBaseId == knowledgeBaseId);
+        }
+
+        var rows = await query.Select(e => e.Json).ToListAsync(cancellationToken).ConfigureAwait(false);
+        return [.. rows.Select(SqliteMetadataStore.Deserialize<NetCoreAI.Knowledge.EvaluationSet>)];
+    }
+
+    public async Task<NetCoreAI.Knowledge.EvaluationSet?> GetSetAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var json = await db.EvaluationSets.AsNoTracking().Where(e => e.Id == id).Select(e => e.Json)
+            .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+
+        return json is null ? null : SqliteMetadataStore.Deserialize<NetCoreAI.Knowledge.EvaluationSet>(json);
+    }
+
+    public async Task UpsertSetAsync(NetCoreAI.Knowledge.EvaluationSet set, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(set);
+
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var row = await db.EvaluationSets.FindAsync([db.CurrentTenant, set.Id], cancellationToken).ConfigureAwait(false);
+        if (row is null)
+        {
+            row = new EvaluationSetRow { Id = set.Id };
+            db.EvaluationSets.Add(row);
+        }
+
+        row.KnowledgeBaseId = set.KnowledgeBaseId;
+        row.Json = SqliteMetadataStore.Serialize(set);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task DeleteSetAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await db.EvaluationSets.Where(e => e.Id == id).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+        await db.EvaluationRuns.Where(r => r.SetId == id).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<NetCoreAI.Knowledge.EvaluationRun>> ListRunsAsync(string setId, int limit = 50, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await db.EvaluationRuns.AsNoTracking()
+            .Where(r => r.SetId == setId)
+            .OrderByDescending(r => r.RanAtTicks)
+            .Take(Math.Clamp(limit, 1, 200))
+            .Select(r => r.Json)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        return [.. rows.Select(SqliteMetadataStore.Deserialize<NetCoreAI.Knowledge.EvaluationRun>)];
+    }
+
+    public async Task AddRunAsync(NetCoreAI.Knowledge.EvaluationRun run, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        db.EvaluationRuns.Add(new EvaluationRunRow
+        {
+            Id = run.Id,
+            SetId = run.SetId,
+            RanAtTicks = run.RanAt.UtcTicks,
+            Json = SqliteMetadataStore.Serialize(run),
+        });
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+}

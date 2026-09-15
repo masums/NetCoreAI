@@ -170,7 +170,7 @@ Not a product phase, but required before Phase 1 can start.
 - [ ] `VectorStore.Postgres` (pgvector), `VectorStore.Qdrant`; migration tool between stores
 - [ ] Model testing & benchmarks (§7.3.3): one-click test, tokens/sec, TTFT, memory, benchmark history
 - [ ] Model versioning & updates (§7.3.4): detect newer HF revisions, update with rollback
-- [ ] KB evaluation (§7.5.6): QA test sets, retrieval hit rate, LLM-judge faithfulness scoring
+- [x] KB evaluation (§7.5.6): QA test sets, retrieval hit rate, LLM-judge faithfulness scoring — *hit rate and MRR together, because retrieval that finds the right document in position eight every time has a perfect hit rate and produces bad answers. Built for comparing two configurations rather than for an absolute number; a set written from the documents flatters every configuration equally, and the guide says so — see [docs/guides/knowledge.md](docs/guides/knowledge.md)*
 - [~] Backup/restore of metadata + vector store; JSON bundle export/import for agents/tools/KBs — *bundles carry agents, tools and knowledge base definitions with no secrets and no conversations, and an import reports what it cannot resolve rather than leaving an agent quietly broken. Metadata snapshots use `VACUUM INTO` rather than a file copy. **Vector-store backup and a restore path are outstanding** — see [docs/guides/backup.md](docs/guides/backup.md)*
 - [ ] Plugin manifest + NuGet discovery for third-party providers
 - [ ] Accessibility pass (WCAG 2.1 AA basics)

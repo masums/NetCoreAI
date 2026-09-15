@@ -70,6 +70,8 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
     public DbSet<AuditRow> Audit => Set<AuditRow>();
     public DbSet<AgentVersionRow> AgentVersions => Set<AgentVersionRow>();
     public DbSet<ToolGroupRow> ToolGroups => Set<ToolGroupRow>();
+    public DbSet<EvaluationSetRow> EvaluationSets => Set<EvaluationSetRow>();
+    public DbSet<EvaluationRunRow> EvaluationRuns => Set<EvaluationRunRow>();
 
     /// <summary>
     /// Stamps new rows with the current tenant.
@@ -118,6 +120,8 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
         modelBuilder.Entity<AuditRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
         modelBuilder.Entity<AgentVersionRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
         modelBuilder.Entity<ToolGroupRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
+        modelBuilder.Entity<EvaluationSetRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
+        modelBuilder.Entity<EvaluationRunRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
         modelBuilder.Entity<DownloadRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
         modelBuilder.Entity<JobRow>().HasQueryFilter(r => r.TenantId == CurrentTenant);
 
@@ -232,6 +236,20 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
             e.HasIndex(x => new { x.ActorId, x.AtTicks });
         });
         modelBuilder.Entity<ToolGroupRow>(e => { e.ToTable("ToolGroups"); e.HasKey(x => x.Id); });
+        modelBuilder.Entity<EvaluationSetRow>(e =>
+        {
+            e.ToTable("EvaluationSets");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.KnowledgeBaseId);
+        });
+        modelBuilder.Entity<EvaluationRunRow>(e =>
+        {
+            e.ToTable("EvaluationRuns");
+            e.HasKey(x => x.Id);
+
+            // Runs are read newest-first for one set, which is how two configurations get compared.
+            e.HasIndex(x => new { x.SetId, x.RanAtTicks });
+        });
         modelBuilder.Entity<AgentVersionRow>(e =>
         {
             e.ToTable("AgentVersions");
@@ -415,6 +433,25 @@ public sealed class AuditRow : ITenantOwned
     public string EntityType { get; set; } = "";
     public string? EntityId { get; set; }
     public string? ActorId { get; set; }
+    public string Json { get; set; } = "";
+}
+
+/// <summary>A named set of evaluation questions.</summary>
+public sealed class EvaluationSetRow : ITenantOwned
+{
+    public string TenantId { get; set; } = NetCoreAI.Tenancy.TenantId.Default;
+    public string Id { get; set; } = "";
+    public string KnowledgeBaseId { get; set; } = "";
+    public string Json { get; set; } = "";
+}
+
+/// <summary>One run of a set.</summary>
+public sealed class EvaluationRunRow : ITenantOwned
+{
+    public string TenantId { get; set; } = NetCoreAI.Tenancy.TenantId.Default;
+    public string Id { get; set; } = "";
+    public string SetId { get; set; } = "";
+    public long RanAtTicks { get; set; }
     public string Json { get; set; } = "";
 }
 
