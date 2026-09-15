@@ -14,8 +14,14 @@ internal interface IBudgetLedger
     /// <summary>Estimated cost an agent has run up in the last 24 hours.</summary>
     decimal AgentCostToday(string agentId);
 
+    /// <summary>Tokens a tenant has used in the last 24 hours.</summary>
+    long TenantTokensToday(string tenantId);
+
+    /// <summary>Estimated cost a tenant has run up in the last 24 hours.</summary>
+    decimal TenantCostToday(string tenantId);
+
     /// <summary>Adds what a finished run used.</summary>
-    void Record(string agentId, string? sessionId, string? userId, long tokens, decimal cost);
+    void Record(string agentId, string? sessionId, string? userId, long tokens, decimal cost, string? tenantId = null);
 }
 
 /// <summary>
@@ -35,6 +41,7 @@ internal sealed class BudgetLedger : IBudgetLedger
     private readonly ConcurrentDictionary<string, long> _sessions = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, List<Entry>> _users = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, List<Entry>> _agents = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, List<Entry>> _tenants = new(StringComparer.Ordinal);
 
     private readonly record struct Entry(DateTimeOffset At, long Tokens, decimal Cost);
 
@@ -44,7 +51,11 @@ internal sealed class BudgetLedger : IBudgetLedger
 
     public decimal AgentCostToday(string agentId) => Sum(_agents, agentId, e => e.Cost);
 
-    public void Record(string agentId, string? sessionId, string? userId, long tokens, decimal cost)
+    public long TenantTokensToday(string tenantId) => (long)Sum(_tenants, tenantId, e => e.Tokens);
+
+    public decimal TenantCostToday(string tenantId) => Sum(_tenants, tenantId, e => e.Cost);
+
+    public void Record(string agentId, string? sessionId, string? userId, long tokens, decimal cost, string? tenantId = null)
     {
         if (sessionId is { Length: > 0 })
         {
@@ -60,6 +71,11 @@ internal sealed class BudgetLedger : IBudgetLedger
         if (agentId is { Length: > 0 })
         {
             Add(_agents, agentId, entry);
+        }
+
+        if (tenantId is { Length: > 0 })
+        {
+            Add(_tenants, tenantId, entry);
         }
     }
 

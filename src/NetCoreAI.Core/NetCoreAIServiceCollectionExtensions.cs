@@ -155,6 +155,7 @@ public static class NetCoreAIServiceCollectionExtensions
         // reads the current tenant on every call, so there is no "tenancy off" branch in it to get wrong.
         services.TryAddSingleton<NetCoreAI.Tenancy.ITenantAccessor, NetCoreAI.Tenancy.TenantAccessor>();
         services.TryAddSingleton<NetCoreAI.Tenancy.ITenantService, NetCoreAI.Tenancy.TenantService>();
+        services.TryAddSingleton<NetCoreAI.Tenancy.ITenantQuotas, NetCoreAI.Tenancy.TenantQuotas>();
         services.TryAddEnumerable(
         [
             ServiceDescriptor.Singleton<NetCoreAI.Tenancy.ITenantResolver, NetCoreAI.Tenancy.ClaimTenantResolver>(),

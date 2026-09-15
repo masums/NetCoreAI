@@ -100,6 +100,12 @@ internal sealed class FileDataSource(IOptionsMonitor<NetCoreAIOptions> options, 
     }
 
     /// <summary>The folder a base's uploads live in.</summary>
+    /// <summary>Everything one tenant has uploaded, across all of its knowledge bases.</summary>
+    public static string UploadRoot(string dataDirectory, string? tenantId = null) =>
+        tenantId is null or NetCoreAI.Tenancy.TenantId.Default
+            ? Path.Combine(dataDirectory, "kb")
+            : Path.Combine(dataDirectory, "tenants", tenantId, "kb");
+
     public static string UploadFolder(string dataDirectory, string knowledgeBaseId, string? tenantId = null) =>
         tenantId is null or NetCoreAI.Tenancy.TenantId.Default
 

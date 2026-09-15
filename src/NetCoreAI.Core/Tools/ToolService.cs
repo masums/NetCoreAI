@@ -36,6 +36,7 @@ internal sealed partial class ToolService(
     IEndpointDiscovery discovery,
     ICodeToolSource codeTools,
     NetCoreAI.Security.IAuditLog audit,
+    NetCoreAI.Tenancy.ITenantQuotas quotas,
     ILogger<ToolService> logger) : IToolService
 {
     [GeneratedRegex("^[a-zA-Z][a-zA-Z0-9_]{0,63}$")]
@@ -91,6 +92,11 @@ internal sealed partial class ToolService(
         ValidateParameters(saved);
 
         var existed = await store.Tools.GetAsync(saved.Id, cancellationToken).ConfigureAwait(false) is not null;
+        if (!existed)
+        {
+            await quotas.EnsureRoomForAsync(NetCoreAI.Tenancy.QuotaKind.Tool, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+
         await store.Tools.UpsertAsync(saved, cancellationToken).ConfigureAwait(false);
         logger.LogInformation("Saved tool {Name} ({Kind}, {Mode}).", saved.Name, saved.Kind, saved.InvocationMode);
 

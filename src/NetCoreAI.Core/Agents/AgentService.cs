@@ -57,6 +57,8 @@ internal sealed partial class AgentService(
     NetCoreAI.Telemetry.ICostEstimator costs,
     NetCoreAI.Guardrails.IGuardrailService guardrails,
     NetCoreAI.Security.IAuditLog audit,
+    NetCoreAI.Tenancy.ITenantQuotas quotas,
+    NetCoreAI.Tenancy.ITenantAccessor tenants,
     Microsoft.Extensions.Options.IOptions<NetCoreAIOptions> options,
     ILogger<AgentService> logger) : IAgentService
 {
@@ -101,6 +103,13 @@ internal sealed partial class AgentService(
 
         var saved = agent with { UpdatedAt = DateTimeOffset.UtcNow };
         var existed = await store.Agents.GetAsync(saved.Id, cancellationToken).ConfigureAwait(false) is not null;
+        if (!existed)
+        {
+            // Only a new one counts. Editing the agent that took a tenant to its limit must keep working,
+            // or the limit becomes a trap rather than a ceiling.
+            await quotas.EnsureRoomForAsync(NetCoreAI.Tenancy.QuotaKind.Agent, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+
         await store.Agents.UpsertAsync(saved, cancellationToken).ConfigureAwait(false);
         logger.LogInformation("Saved agent {Name} ({Id}).", saved.Name, saved.Id);
 
@@ -219,7 +228,8 @@ internal sealed partial class AgentService(
         // The agent's own rules, or the host's defaults when it carries none.
         var policy = agent.Guardrails ?? options.Value.Guardrails;
 
-        if (guardrails.CheckBudget(policy, agent.Id, request.SessionId, caller.UserId) is { } overspent)
+        if ((guardrails.CheckBudget(policy, agent.Id, request.SessionId, caller.UserId)
+             ?? quotas.CheckDailyBudget()) is { } overspent)
         {
             await FailAsync(run, steps, overspent, started, cancellationToken).ConfigureAwait(false);
             Record(agent, activity, false, (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, overspent);
@@ -456,7 +466,8 @@ internal sealed partial class AgentService(
             request.SessionId,
             caller.UserId,
             (finished.InputTokens ?? 0) + (finished.OutputTokens ?? 0),
-            finished.EstimatedCost ?? 0);
+            finished.EstimatedCost ?? 0,
+            tenants.Current);
 
         activity?.SetTag("gen_ai.response.model", finished.ModelId);
         activity?.SetTag("gen_ai.usage.input_tokens", finished.InputTokens);

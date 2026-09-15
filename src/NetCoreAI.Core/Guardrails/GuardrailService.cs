@@ -25,7 +25,7 @@ public interface IGuardrailService
     string? CheckBudget(GuardrailPolicy policy, string agentId, string? sessionId, string? userId);
 
     /// <summary>Adds what a finished run used to the running totals.</summary>
-    void RecordUsage(string agentId, string? sessionId, string? userId, long tokens, decimal cost);
+    void RecordUsage(string agentId, string? sessionId, string? userId, long tokens, decimal cost, string? tenantId = null);
 }
 
 internal sealed class GuardrailService(IBudgetLedger ledger, ILogger<GuardrailService> logger) : IGuardrailService
@@ -149,8 +149,8 @@ internal sealed class GuardrailService(IBudgetLedger ledger, ILogger<GuardrailSe
         return null;
     }
 
-    public void RecordUsage(string agentId, string? sessionId, string? userId, long tokens, decimal cost) =>
-        ledger.Record(agentId, sessionId, userId, tokens, cost);
+    public void RecordUsage(string agentId, string? sessionId, string? userId, long tokens, decimal cost, string? tenantId = null) =>
+        ledger.Record(agentId, sessionId, userId, tokens, cost, tenantId);
 
     private string? Content(GuardrailPolicy policy, string text, List<GuardrailFinding> findings)
     {

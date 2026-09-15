@@ -1,5 +1,58 @@
 namespace NetCoreAI.Tenancy;
 
+/// <summary>
+/// What one tenant may use.
+/// </summary>
+/// <remarks>
+/// Every limit is 0 by default, which means no limit. A quota nobody set must not start refusing things
+/// the day tenancy is switched on.
+/// </remarks>
+public sealed record TenantQuota
+{
+    /// <summary>Agents this tenant may have at once.</summary>
+    public int MaxAgents { get; init; }
+
+    /// <summary>Tools this tenant may have at once.</summary>
+    public int MaxTools { get; init; }
+
+    /// <summary>Knowledge bases this tenant may have at once.</summary>
+    public int MaxKnowledgeBases { get; init; }
+
+    /// <summary>Documents across all of this tenant's knowledge bases.</summary>
+    public int MaxDocuments { get; init; }
+
+    /// <summary>Bytes of uploaded files this tenant may keep.</summary>
+    public long MaxUploadBytes { get; init; }
+
+    /// <summary>
+    /// Tokens this tenant may use in a rolling 24 hours, and the estimated spend it may run up.
+    /// </summary>
+    /// <remarks>
+    /// Counted in this process only, like every other budget here — see
+    /// <see cref="NetCoreAI.Guardrails.BudgetPolicy"/>. The counts above are exact, because they are read
+    /// from the store; these two bound a runaway loop rather than a bill.
+    /// </remarks>
+    public long MaxTokensPerDay { get; init; }
+
+    /// <inheritdoc cref="MaxTokensPerDay"/>
+    public decimal MaxCostPerDay { get; init; }
+
+    /// <summary>Whether any limit here would do anything at all.</summary>
+    public bool IsActive =>
+        MaxAgents > 0 || MaxTools > 0 || MaxKnowledgeBases > 0 || MaxDocuments > 0
+        || MaxUploadBytes > 0 || MaxTokensPerDay > 0 || MaxCostPerDay > 0;
+}
+
+/// <summary>What a tenant is using right now, against what it may use.</summary>
+/// <param name="Name">What is being counted, for a person reading it.</param>
+/// <param name="Used">The current figure.</param>
+/// <param name="Limit">What it may reach, or 0 for no limit.</param>
+public readonly record struct QuotaUsage(string Name, long Used, long Limit)
+{
+    /// <summary>Whether one more would be refused.</summary>
+    public bool AtLimit => Limit > 0 && Used >= Limit;
+}
+
 /// <summary>One customer of a host that serves several.</summary>
 public sealed record Tenant
 {
@@ -12,6 +65,9 @@ public sealed record Tenant
     /// reason to disable one is a dispute rather than a deletion.
     /// </summary>
     public bool Enabled { get; init; } = true;
+
+    /// <summary>What this tenant may use. Everything unlimited until somebody says otherwise.</summary>
+    public TenantQuota Quota { get; init; } = new();
 
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }

@@ -293,6 +293,132 @@ public sealed class TenancyTests : IAsyncLifetime
         Assert.Contains("acme", acme, StringComparison.Ordinal);
     }
 
+    // ---------- quotas ----------
+
+    private async Task SetQuotaAsync(string tenant, TenantQuota quota)
+    {
+        var tenants = _app.Services.GetRequiredService<ITenantService>();
+        var existing = await tenants.GetAsync(tenant, Ct) ?? await tenants.CreateAsync(new Tenant { Id = tenant, Name = tenant }, Ct);
+        await tenants.UpdateAsync(existing with { Quota = quota }, Ct);
+    }
+
+    [Fact]
+    public async Task A_tenant_at_its_agent_limit_cannot_create_another()
+    {
+        await SetQuotaAsync("acme", new TenantQuota { MaxAgents = 2 });
+
+        await SaveAgentAsync("acme", "one", "One");
+        await SaveAgentAsync("acme", "two", "Two");
+
+        using var _ = Tenants.Use("acme");
+        var error = await Assert.ThrowsAsync<NetCoreAIException>(() =>
+            _app.Services.GetRequiredService<IAgentService>().SaveAsync(new AgentDefinition { Id = "three", Name = "Three" }, Ct));
+
+        // The numbers are in the message, because "quota exceeded" tells somebody nothing about what to
+        // delete or what to ask for.
+        Assert.Contains("2", error.Message, StringComparison.Ordinal);
+        Assert.Contains("agents", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Editing_the_agent_that_reached_the_limit_still_works()
+    {
+        await SetQuotaAsync("acme", new TenantQuota { MaxAgents = 1 });
+        await SaveAgentAsync("acme", "only", "Only");
+
+        // Otherwise the limit is a trap rather than a ceiling: the tenant could never fix a typo in the
+        // agent that took them to it.
+        await SaveAgentAsync("acme", "only", "Renamed");
+
+        Assert.Equal("Renamed", Assert.Single(await AgentsAsync("acme")).Name);
+    }
+
+    [Fact]
+    public async Task One_tenants_limit_says_nothing_about_another()
+    {
+        await SetQuotaAsync("acme", new TenantQuota { MaxAgents = 1 });
+        await SaveAgentAsync("acme", "one", "One");
+        await SaveAgentAsync("globex", "one", "One");
+        await SaveAgentAsync("globex", "two", "Two");
+
+        // Globex has no quota, and Acme's full table is not its problem.
+        Assert.Equal(2, (await AgentsAsync("globex")).Count);
+    }
+
+    [Fact]
+    public async Task A_knowledge_base_limit_is_enforced_too()
+    {
+        await SetQuotaAsync("acme", new TenantQuota { MaxKnowledgeBases = 1 });
+
+        using var _ = Tenants.Use("acme");
+        var knowledge = _app.Services.GetRequiredService<IKnowledgeService>();
+        await knowledge.CreateAsync(new KnowledgeBase { Id = "first", Name = "First" }, Ct);
+
+        await Assert.ThrowsAsync<NetCoreAIException>(() =>
+            knowledge.CreateAsync(new KnowledgeBase { Id = "second", Name = "Second" }, Ct));
+    }
+
+    [Fact]
+    public async Task With_no_quota_nothing_is_refused()
+    {
+        // The default, and the test that says having the feature costs a host nothing.
+        for (var i = 0; i < 5; i++)
+        {
+            await SaveAgentAsync("globex", $"a{i}", $"Agent {i}");
+        }
+
+        Assert.Equal(5, (await AgentsAsync("globex")).Count);
+    }
+
+    [Fact]
+    public async Task Usage_reports_what_is_used_and_what_is_allowed()
+    {
+        await SetQuotaAsync("acme", new TenantQuota { MaxAgents = 3 });
+        await SaveAgentAsync("acme", "one", "One");
+
+        using var _ = Tenants.Use("acme");
+        var usage = await _app.Services.GetRequiredService<ITenantQuotas>().UsageAsync(Ct);
+
+        var agents = Assert.Single(usage, u => u.Name == "agents");
+        Assert.Equal(1, agents.Used);
+        Assert.Equal(3, agents.Limit);
+        Assert.False(agents.AtLimit);
+    }
+
+    [Fact]
+    public async Task A_tenant_over_its_daily_tokens_cannot_start_another_run()
+    {
+        await SetQuotaAsync("acme", new TenantQuota { MaxTokensPerDay = 100 });
+
+        using var _ = Tenants.Use("acme");
+        _app.Services.GetRequiredService<NetCoreAI.Guardrails.IGuardrailService>()
+            .RecordUsage("agent", null, null, 150, 0, "acme");
+
+        Assert.NotNull(_app.Services.GetRequiredService<ITenantQuotas>().CheckDailyBudget());
+    }
+
+    [Fact]
+    public async Task A_daily_budget_is_one_tenants_alone()
+    {
+        await SetQuotaAsync("acme", new TenantQuota { MaxTokensPerDay = 100 });
+        await SetQuotaAsync("globex", new TenantQuota { MaxTokensPerDay = 100 });
+
+        _app.Services.GetRequiredService<NetCoreAI.Guardrails.IGuardrailService>()
+            .RecordUsage("agent", null, null, 150, 0, "acme");
+
+        var quotas = _app.Services.GetRequiredService<ITenantQuotas>();
+
+        using (var _ = Tenants.Use("acme"))
+        {
+            Assert.NotNull(quotas.CheckDailyBudget());
+        }
+
+        using (var _ = Tenants.Use("globex"))
+        {
+            Assert.Null(quotas.CheckDailyBudget());
+        }
+    }
+
     // ---------- what an existing host sees ----------
 
     [Fact]

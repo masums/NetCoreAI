@@ -105,8 +105,49 @@ A fresh install needs none of this, and after this release ordinary upgrades res
 created, and a new column is added when it can be filled in. See
 [Upgrading](hosting.md#upgrading).
 
+## Quotas
+
+What a tenant may use. Every limit is 0 by default, which means no limit — a quota nobody set must not
+start refusing things the day tenancy is switched on.
+
+```csharp
+await tenants.UpdateAsync(tenant with
+{
+    Quota = new TenantQuota
+    {
+        MaxAgents = 20,
+        MaxTools = 50,
+        MaxKnowledgeBases = 10,
+        MaxDocuments = 5_000,
+        MaxUploadBytes = 2L * 1024 * 1024 * 1024,
+        MaxTokensPerDay = 1_000_000,
+        MaxCostPerDay = 50m,
+    },
+});
+```
+
+`GET /api/tenants/usage` reports what the calling tenant is using against each limit. It reports the
+caller's own usage and nobody else's: reading another tenant's would mean stepping outside the tenant the
+request established, which is the one thing nothing here does.
+
+Four things worth knowing:
+
+- **Counts are exact**, read from the store rather than from a running total. A cached counter is wrong the
+  first time a row is removed by anything other than the path that maintains it.
+- **Only a new one counts.** Editing the agent that took a tenant to its limit still works, or the limit is
+  a trap rather than a ceiling.
+- **Refusals carry the numbers** — "may have 20 agents and already has 20" — because "quota exceeded" tells
+  nobody what to delete or what to ask for.
+- **Uploads are measured from disk**, not summed from a column, and are checked before the write when the
+  stream can say how big it is. A stream that cannot is checked once it is written, and the file is taken
+  back off disk before the refusal so a rejected upload does not leave a tenant permanently over.
+
+The two daily budgets — tokens and spend — are counted **in this process only**, the same bargain as the
+guardrail budgets and the API key rate limiter: behind a load balancer, *n* instances allow *n* times the
+budget, and a restart clears them. They bound a runaway loop rather than a bill. The counts above have no
+such caveat.
+
 ## Still outstanding
 
-Per-tenant **quotas** (documents, storage, spend) and a dashboard **tenant switcher** are not built. Token
-and cost budgets are available per agent today through
-[guardrails](guardrails.md), which is the nearest thing until quotas land.
+A dashboard **tenant switcher**: tenants are managed through `/api/tenants` and the `ITenantService`, not
+yet from a page.
