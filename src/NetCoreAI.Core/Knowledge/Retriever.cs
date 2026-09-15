@@ -39,7 +39,8 @@ internal sealed class Retriever(
     IMetadataStore store,
     IChatClientFactory clients,
     IEnumerable<IVectorStore> vectorStores,
-    ILogger<Retriever> logger) : IRetriever
+    ILogger<Retriever> logger,
+    IReranker? reranker = null) : IRetriever
 {
     private readonly List<IVectorStore> _vectorStores = [.. vectorStores];
 
@@ -124,6 +125,11 @@ internal sealed class Retriever(
 
         var topK = Math.Max(1, settings.TopK);
 
+        // Retrieve wider than the answer when something is going to re-read the candidates, because the
+        // passages worth promoting are the ones the first stage ranked eighth.
+        var reranking = settings.Rerank && reranker is not null;
+        var fetch = reranking ? Math.Max(topK, Math.Clamp(settings.RerankCandidates, topK, 200)) : topK;
+
         // Keywords only when the store can do them. A store that cannot falls back to vectors rather than
         // failing: hybrid is the default, and a default must work everywhere it lands.
         var keywords = vectorStore as IKeywordSearchable;
@@ -137,7 +143,7 @@ internal sealed class Retriever(
         IReadOnlyList<VectorSearchResult> hits;
         if (mode == RetrievalMode.Keyword)
         {
-            hits = await keywords!.SearchKeywordAsync(knowledgeBase.Collection, query, topK, filter, cancellationToken).ConfigureAwait(false);
+            hits = await keywords!.SearchKeywordAsync(knowledgeBase.Collection, query, fetch, filter, cancellationToken).ConfigureAwait(false);
         }
         else
         {
@@ -145,7 +151,7 @@ internal sealed class Retriever(
 
             // Each leg fetches more than topK, because the whole point of fusing is that a passage ranked
             // eighth by one and second by the other should beat one ranked fourth by both.
-            var depth = mode == RetrievalMode.Hybrid ? Math.Max(topK * 3, 20) : topK;
+            var depth = mode == RetrievalMode.Hybrid ? Math.Max(fetch * 3, 20) : fetch;
             var vectorHits = await vectorStore.SearchAsync(knowledgeBase.Collection, embedding, depth, filter, cancellationToken).ConfigureAwait(false);
 
             hits = mode == RetrievalMode.Vector
@@ -153,7 +159,7 @@ internal sealed class Retriever(
                 : Fuse(
                     vectorHits,
                     await keywords!.SearchKeywordAsync(knowledgeBase.Collection, query, depth, filter, cancellationToken).ConfigureAwait(false),
-                    topK);
+                    fetch);
         }
 
         var results = new List<RetrievedChunk>(hits.Count);
@@ -166,9 +172,28 @@ internal sealed class Retriever(
                 ToCitation(knowledgeBase, hit)));
         }
 
+        if (reranking && results.Count > 1)
+        {
+            try
+            {
+                results = [.. await reranker!.RerankAsync(query, results, topK, cancellationToken).ConfigureAwait(false)];
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // The candidates are already a reasonable answer. A reranker that cannot run should cost
+                // the host some quality, not the caller their answer.
+                logger.LogWarning(ex, "The reranker ({Reranker}) failed; using the retrieval order.", reranker!.Id);
+                results = [.. results.Take(topK)];
+            }
+        }
+        else if (results.Count > topK)
+        {
+            results = [.. results.Take(topK)];
+        }
+
         logger.LogDebug(
-            "Retrieved {Count} chunk(s) from {KnowledgeBase} for a {Length}-character query using {Mode} search.",
-            results.Count, knowledgeBase.Name, query.Length, mode);
+            "Retrieved {Count} chunk(s) from {KnowledgeBase} for a {Length}-character query using {Mode} search{Reranked}.",
+            results.Count, knowledgeBase.Name, query.Length, mode, reranking ? " and a reranker" : "");
 
         return results;
     }

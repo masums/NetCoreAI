@@ -177,3 +177,38 @@ Queries are tokenised the way the index is: `AB-1234/X` becomes the phrase `"AB 
 glued token, because that is how the document was stored. Every term is quoted — partly so punctuation
 cannot be read as an FTS5 operator, and partly because a query is text somebody typed and must never become
 part of the expression evaluating it.
+
+## Re-ranking
+
+Hybrid search gets the right passages into the candidate set. A re-ranker decides which of them goes first
+— and the order is what decides the answer, because a model given ten passages leans on the first two. A
+correct passage ranked seventh is, in practice, a passage that was not retrieved.
+
+```csharp
+builder.Services.AddNetCoreAI()
+    .AddOnnxBackend()
+    .AddOnnxReranker("./models/bge-reranker-base");
+```
+
+Nothing else changes. Every knowledge base re-ranks by default once a re-ranker is registered, and none
+does while none is — a host that adds one gets the benefit without finding a setting first, and a host that
+does not pays nothing.
+
+**Why a second pass at all.** A vector search compares a question and a passage that were embedded
+separately and never saw each other. A cross-encoder reads the two *together* and answers one question:
+does this passage answer that one. It is far better at it, and far too slow to run over a corpus — which is
+why it goes second, over a few dozen candidates something cheap has already found.
+
+Retrieval fetches wider than the answer when a re-ranker will read the results — `RerankCandidates`,
+30 by default. The whole value is in the passages the first stage ranked eighth, so the pool has to be
+bigger than the answer; too big and every question pays for passages that were never plausible.
+
+A re-ranker that fails costs quality, not the answer. The candidates were already a reasonable result, and
+the retrieval order is used with a warning logged. Turning a quality feature into an availability one would
+be the wrong trade.
+
+Set `Retrieval.Rerank = false` on a knowledge base that should skip it.
+
+**Not yet tested end to end.** The seam is covered — the wider net, the re-ordering, the cut, the failure
+path — but whether `bge-reranker-base` itself ranks well is checked by hand rather than by a test, because
+that needs a model download. Treat the ONNX implementation as newer than the rest of this page.

@@ -117,6 +117,25 @@ public sealed record RetrievalOptions
     /// between them is a worse default than having both.
     /// </remarks>
     public RetrievalMode Mode { get; init; } = RetrievalMode.Hybrid;
+
+    /// <summary>
+    /// Re-read the candidates with a cross-encoder and reorder them, when one is registered.
+    /// </summary>
+    /// <remarks>
+    /// On by default and inert without a reranker, so a host that registers one gets the benefit without
+    /// finding a setting first, and a host that does not pays nothing. The cost when there is one is one
+    /// model pass over a few dozen short pairs, which is why the candidate pool below is bounded.
+    /// </remarks>
+    public bool Rerank { get; init; } = true;
+
+    /// <summary>
+    /// How many candidates the reranker is given before it cuts to <see cref="TopK"/>.
+    /// </summary>
+    /// <remarks>
+    /// The whole value of reranking is in the passages the first stage ranked eighth, so the pool has to
+    /// be bigger than the answer. Too big and every question pays for passages that were never plausible.
+    /// </remarks>
+    public int RerankCandidates { get; init; } = 30;
     /// <summary>Chunks to retrieve before any filtering.</summary>
     public int TopK { get; init; } = 5;
 

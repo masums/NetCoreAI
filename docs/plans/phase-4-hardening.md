@@ -10,7 +10,7 @@
 ## Work packages (grouped; each independently shippable as 0.x minors)
 1. **Safetensors convert-on-import** — `IModelConverter`, converter package, Hub labels "runs natively / will be converted", job with progress.
 2. **Routing rules** — `RoutingPolicy` (prompt length, tool requirement, user role, cost/latency budgets) evaluated before `FallbackChatClient`.
-3. **Retrieval quality** — hybrid search done; the cross-encoder re-ranker and KB evaluation outstanding.
+3. **Retrieval quality** — hybrid search and the re-ranker seam done; KB evaluation outstanding.
 
 Hybrid is the default rather than an option, because choosing between the two is a worse default than
 having both: a vector search misses an exact token like an error code, and a keyword search misses a
@@ -20,6 +20,20 @@ score are different things measured differently, and normalising one onto the ot
 that is not there. In SQLite the keyword index is FTS5 over the existing chunk text, kept in step by
 database triggers rather than by code that has to remember, and it applies the same access tags as the
 vector leg: an index that ignored them would be a way to read a restricted passage by guessing a word in it.
+
+Re-ranking is a seam plus one implementation. Retrieval and ranking are different jobs: a vector search
+compares a question and a passage embedded separately that never saw each other, while a cross-encoder
+reads the two together and answers one question — does this passage answer that one. It is much better at
+it and far too slow for a corpus, so it goes second over a few dozen candidates. The retrieval stage
+therefore fetches wider than the answer when a reranker is registered, because the passages worth promoting
+are the ones ranked below the cut. On by default and inert with no reranker registered, so a host that adds
+one gets the benefit without finding a setting and a host that does not pays nothing. A reranker that
+throws costs quality rather than the answer — the candidates were already reasonable, and turning a quality
+feature into an availability one would be the wrong trade.
+
+The seam is tested with a stand-in, in the real retrieval path. The ONNX cross-encoder itself has no
+automated test: it needs a model download, and the existing model fixtures are already gated behind
+`NETCOREAI_TEST_MODELS=1`. That is recorded as outstanding rather than counted as done.
 4. **Guardrails** — done. Content rules, PII masking, injection heuristics, per-role tool allow-lists, token and cost budgets. Two deviations from the plan above, both deliberate: they sit in the agent run rather than in chat-client middleware, because the input check has to happen before retrieval and before the model is chosen, and the tool allow-list has to narrow the list before the pipeline is built rather than refuse a call after the model has spent one on it; and there is no `IAgentEventHandler` yet, so findings are carried in the run trace and on a counter instead. Everything is off by default, and `GuardrailAction.Ignore` means genuinely off — no scanning, no trace entries. Budgets are counted per process.
 5. **Versioning & publishing** — done. Agent versioning, tool groups and versioning, and the JSON bundle.
 
