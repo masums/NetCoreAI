@@ -235,6 +235,10 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
             // Runs are listed newest-first for one agent, and pruned by age.
             e.HasIndex(x => new { x.AgentId, x.StartedAtTicks });
             e.HasIndex(x => x.StartedAtTicks);
+
+            // Usage is read per model and per person as often as per agent.
+            e.HasIndex(x => new { x.ModelId, x.StartedAtTicks });
+            e.HasIndex(x => new { x.UserId, x.StartedAtTicks });
         });
 
         ConfigureTenancy(modelBuilder);
@@ -406,6 +410,42 @@ public sealed class RunRow : ITenantOwned
     public string Id { get; set; } = "";
     public string AgentId { get; set; } = "";
     public long StartedAtTicks { get; set; }
+
+    /// <summary>
+    /// What usage is filtered and totalled by, beside the JSON.
+    /// </summary>
+    /// <remarks>
+    /// Nullable, every one of them, so that rows written before these columns existed read as "not
+    /// recorded" rather than as zero. A run that used an unknown number of tokens is not a run that used
+    /// none, and a report that quietly says otherwise is worse than one with a gap in it.
+    /// </remarks>
+    public string? ModelId { get; set; }
+
+    /// <inheritdoc cref="ModelId"/>
+    public string? UserId { get; set; }
+
+    /// <inheritdoc cref="ModelId"/>
+    public int? InputTokens { get; set; }
+
+    /// <inheritdoc cref="ModelId"/>
+    public int? OutputTokens { get; set; }
+
+    /// <summary>
+    /// Estimated cost, as a double.
+    /// </summary>
+    /// <remarks>
+    /// SQLite has no decimal type and EF stores one as text, which cannot be summed in SQL. The figure is
+    /// an estimate from a per-token price, so the exactness a decimal buys was never there to lose; the
+    /// authoritative per-run figure is still in the JSON.
+    /// </remarks>
+    public double? Cost { get; set; }
+
+    /// <inheritdoc cref="ModelId"/>
+    public bool? Success { get; set; }
+
+    /// <inheritdoc cref="ModelId"/>
+    public long? ElapsedMs { get; set; }
+
     public string Json { get; set; } = "";
 }
 

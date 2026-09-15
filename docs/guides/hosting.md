@@ -45,6 +45,31 @@ and are re-indexed. After 1.0 this becomes a real migration; the schema is not f
 
 Back the database up before upgrading if any of that would hurt. It is one file.
 
+### Usage and run history
+
+The **Usage** page shows what has been run over a period — runs, tokens, estimated cost, median run time,
+failures — broken down by agent, by model and by person, with a filterable browser of the runs themselves
+underneath and a CSV export. Also at `GET /api/usage`, `/api/usage/runs` and `/api/usage/export`.
+
+It reads the run traces that were being written anyway. There is no separate accounting table: a second
+copy kept for reporting disagrees with the traces the first time a run is written by a path that forgot to
+update it. The numbers here are the same rows the run's own trace shows.
+
+Four things worth knowing before you quote a figure from it:
+
+- **A run whose provider reported no usage is counted separately, not as zero.** The page says how many,
+  and the totals are understated by that much. A report that hides them reads as precise when it is not.
+- **Run time is a median, not a mean.** One thirty-second run should not move the number people quote.
+- **Cost is an estimate** from the per-token price on the connection, and is stored as a float for
+  summing. The authoritative per-run figure is in the trace.
+- **Free-text search covers the page you are on**, not the whole history — the question and the answer
+  live inside each trace rather than in a column, and searching all of them properly wants a full-text
+  index. Narrow by agent and period first.
+
+How far back it goes is `Storage.RunRetentionDays` (90 by default). The CSV export is capped at 500 runs
+per download and prefixes any field starting with `=`, `+`, `-` or `@` with a quote, so an agent id
+somebody chose cannot become a formula in whoever opens it.
+
 ### The audit log
 
 Who created, changed or deleted a model, connection, tool, agent, knowledge base or API key, and when. On

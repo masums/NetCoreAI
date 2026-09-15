@@ -160,8 +160,8 @@ Not a product phase, but required before Phase 1 can start.
 - [x] Audit log (who created/changed/deleted models/tools/agents/KBs, who ran what) — *append-only, on by default, kept a year; runs are opt-in because they already have traces, but a guardrail refusal is always recorded; a write that fails never fails the thing it was recording*
 - [x] Multi-tenant mode: tenant resolver, per-tenant models/KBs/agents/quotas/storage paths — *the tenant is part of every key and every query filter; quotas are exact for counts and per-process for the two daily budgets. A dashboard tenant switcher is outstanding — tenants are managed through the API. Needs a database reset to upgrade, because the primary keys change — see [docs/guides/multi-tenancy.md](docs/guides/multi-tenancy.md)*
 - [x] Data residency switch: block remote providers/outbound calls except allow-listed mirrors — *`Network.OfflineMode` + `AllowedHosts`; one allow-list definition shared by every client and the provider check, now covering tool invocation and the built-in fetch tool as well as hub browsing and downloads*
-- [ ] Usage analytics: token accounting per agent/model/user
-- [ ] Run history browser with full traces, filters, export
+- [x] Usage analytics: token accounting per agent/model/user — *read from the run traces themselves rather than a second accounting table; runs whose provider reported no usage are counted separately instead of as zero*
+- [x] Run history browser with full traces, filters, export — *filter by agent, model, person, outcome and period; CSV export is formula-safe. Free-text search covers the page you are on, not the whole history — that wants a full-text index*
 - [ ] Alerts (disk low, load failure, error-rate spike) via host `IEmailSender`/webhook
 - [ ] OpenAI-compatible `POST /netcoreai/v1/chat/completions` + `/v1/embeddings`
 - [ ] Embeddable chat widget (Razor component/JS snippet, CSS-variable theming)

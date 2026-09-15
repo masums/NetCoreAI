@@ -73,8 +73,8 @@ public sealed class GeminiToolLimitationTests
         }
 
         // A busy or briefly unavailable provider says nothing about whether the limitation still holds,
-        // which is the only thing this test is for. Skipped rather than failed, or the tripwire goes off
-        // for a reason that has nothing to do with what it is watching.
+        // which is the only thing these tests are for. Skipped rather than failed, or the tripwire goes
+        // off for a reason that has nothing to do with what it is watching.
         if (response.StatusCode >= System.Net.HttpStatusCode.InternalServerError)
         {
             Assert.Skip($"Gemini answered HTTP {(int)response.StatusCode}; nothing to conclude from that.");
@@ -105,6 +105,14 @@ public sealed class GeminiToolLimitationTests
         if (body.Contains("quota", StringComparison.OrdinalIgnoreCase) || body.Contains("RESOURCE_EXHAUSTED", StringComparison.Ordinal))
         {
             Assert.Skip("Gemini rate-limited this check.");
+        }
+
+        // A busy or briefly unavailable provider says nothing about whether the limitation still holds,
+        // which is the only thing these tests are for. Skipped rather than failed, or the tripwire goes
+        // off for a reason that has nothing to do with what it is watching.
+        if (response.StatusCode >= System.Net.HttpStatusCode.InternalServerError)
+        {
+            Assert.Skip($"Gemini answered HTTP {(int)response.StatusCode}; nothing to conclude from that.");
         }
 
         // The limitation is narrow, and saying so matters: "Gemini does not work" would be wrong, and

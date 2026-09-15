@@ -125,6 +125,56 @@ public sealed class InMemoryMetadataStore(NetCoreAI.Tenancy.ITenantAccessor? ten
                 .ToList());
         public Task<RunTrace?> GetAsync(string id, CancellationToken ct = default) => Task.FromResult(d.GetValueOrDefault(id));
         public Task UpsertAsync(RunTrace run, CancellationToken ct = default) { d[run.Id] = run; return Task.CompletedTask; }
+
+        public Task<IReadOnlyList<RunTrace>> QueryAsync(RunQuery query, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<RunTrace>>([.. Match(query)
+                .OrderByDescending(r => r.StartedAt)
+                .Skip(Math.Max(0, query.Offset))
+                .Take(Math.Clamp(query.Limit, 1, 500))]);
+
+        public Task<int> CountAsync(RunQuery query, CancellationToken ct = default) =>
+            Task.FromResult(Match(query).Count());
+
+        public Task<UsageSummary> SummariseAsync(RunQuery query, CancellationToken ct = default)
+        {
+            var runs = Match(query).ToList();
+            var elapsed = runs.Select(r => r.ElapsedMs).Order().ToList();
+
+            return Task.FromResult(new UsageSummary(runs.Count, runs.Count(r => !r.Success))
+            {
+                InputTokens = runs.Sum(r => (long?)r.InputTokens ?? 0),
+                OutputTokens = runs.Sum(r => (long?)r.OutputTokens ?? 0),
+                Cost = runs.Sum(r => r.EstimatedCost ?? 0),
+                MedianElapsedMs = elapsed.Count == 0 ? 0 : elapsed[elapsed.Count / 2],
+                Unmeasured = runs.Count(r => r.InputTokens is null && r.OutputTokens is null),
+                ByAgent = Group(runs, r => r.AgentId),
+                ByModel = Group(runs, r => r.ModelId ?? "(not recorded)"),
+                ByUser = Group(runs, r => r.UserId ?? "(not signed in)"),
+                ByDay = Group(runs, r => r.StartedAt.UtcDateTime.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)),
+            });
+        }
+
+        private IEnumerable<RunTrace> Match(RunQuery query) =>
+            d.Values
+                .Where(r => query.AgentId is not { Length: > 0 } || r.AgentId == query.AgentId)
+                .Where(r => query.ModelId is not { Length: > 0 } || r.ModelId == query.ModelId)
+                .Where(r => query.UserId is not { Length: > 0 } || r.UserId == query.UserId)
+                .Where(r => query.Success is not { } success || r.Success == success)
+                .Where(r => query.Since is not { } since || r.StartedAt >= since)
+                .Where(r => query.Until is not { } until || r.StartedAt <= until)
+                .Where(r => query.Search is not { Length: > 0 } search
+                    || (r.Input?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || (r.Output?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false));
+
+        private static List<UsageBreakdown> Group(List<RunTrace> runs, Func<RunTrace, string> key) =>
+            [.. runs.GroupBy(key)
+                .Select(g => new UsageBreakdown(g.Key, g.Count())
+                {
+                    Tokens = g.Sum(r => (long?)r.InputTokens ?? 0) + g.Sum(r => (long?)r.OutputTokens ?? 0),
+                    Cost = g.Sum(r => r.EstimatedCost ?? 0),
+                })
+                .OrderByDescending(b => b.Tokens)
+                .ThenBy(b => b.Key, StringComparer.Ordinal)];
         public Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default)
         {
             var stale = d.Values.Where(r => r.StartedAt < olderThan).Select(r => r.Id).ToList();

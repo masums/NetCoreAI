@@ -544,6 +544,95 @@
     try { return JSON.parse($('#agent-options')?.textContent || '{}'); } catch { return {}; }
   })();
 
+  // The run browser. Filters, pages and exports what the Usage page summarises above it.
+  (() => {
+    const form = $('#usage-filter');
+    if (!form) return;
+
+    let offset = 0;
+
+    function query(extra) {
+      const d = formData(form);
+      const q = new URLSearchParams();
+      for (const [key, value] of Object.entries(d)) {
+        if (value !== '') q.set(key, value);
+      }
+      for (const [key, value] of Object.entries(extra || {})) q.set(key, value);
+      return q;
+    }
+
+    async function load() {
+      const list = $('#runs-list');
+      const { total, runs } = await call('GET', `usage/runs?${query({ limit: 25, offset })}`);
+      $('#runs-count').textContent = total === 0 ? 'none' : `${total} run(s)`;
+
+      if (!runs.length) {
+        list.innerHTML = '<p class="empty">Nothing matched that.</p>';
+        return;
+      }
+
+      list.innerHTML = `
+        <table><thead><tr><th>When</th><th>Agent</th><th>Model</th><th>Who</th><th>Tokens</th><th>Took</th><th></th></tr></thead>
+        <tbody>${runs.map((r) => `<tr>
+          <td class="small" title="${esc(r.startedAt)}">${esc(new Date(r.startedAt).toLocaleString())}</td>
+          <td class="small">${esc(r.agentId)}${r.success ? '' : ' <span class="tag warn">failed</span>'}</td>
+          <td class="small mono">${esc(r.modelId || '–')}</td>
+          <td class="small">${esc(r.userId || 'not signed in')}</td>
+          <td class="small">${r.inputTokens === null && r.outputTokens === null ? '<span class="muted">not recorded</span>' : ((r.inputTokens || 0) + (r.outputTokens || 0)).toLocaleString()}</td>
+          <td class="small">${(r.elapsedMs || 0).toLocaleString()} ms</td>
+          <td class="actions"><button class="btn small" data-action="run-open" data-id="${esc(r.id)}">Trace…</button></td>
+        </tr>`).join('')}</tbody></table>
+        <div class="toolbar">
+          <button class="btn small" data-action="runs-prev"${offset === 0 ? ' disabled' : ''}>Newer</button>
+          <button class="btn small" data-action="runs-next"${offset + 25 >= total ? ' disabled' : ''}>Older</button>
+        </div>`;
+    }
+
+    form.addEventListener('submit', (ev) => { ev.preventDefault(); offset = 0; guarded(load); });
+
+    $('#runs-list').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-action]');
+      if (!btn) return;
+      if (btn.dataset.action === 'runs-next') { offset += 25; guarded(load); }
+      if (btn.dataset.action === 'runs-prev') { offset = Math.max(0, offset - 25); guarded(load); }
+      if (btn.dataset.action === 'run-open') guarded(() => openRunTrace(btn.dataset.id));
+    });
+
+    form.querySelector('[data-action="usage-export"]').addEventListener('click', () => {
+      // Opened rather than fetched: the browser saves the file, and nothing has to hold a year of runs
+      // in memory to hand it over.
+      window.open(api(`usage/export?${query({})}`));
+    });
+  })();
+
+  // One run, in full. The same trace the agent playground shows, reachable from the browser.
+  async function openRunTrace(id) {
+    const run = await call('GET', `runs/${encodeURIComponent(id)}`);
+    const panel = $('#runs-list');
+    const existing = $('#run-trace');
+    if (existing) existing.remove();
+
+    const box = document.createElement('div');
+    box.id = 'run-trace';
+    box.className = 'card';
+    box.innerHTML = `
+      <div class="toolbar"><h3>${esc(run.agentId)} · ${esc(new Date(run.startedAt).toLocaleString())}</h3>
+        <button class="btn small" data-action="run-close">Close</button></div>
+      ${run.error ? `<p class="error">${esc(run.error)}</p>` : ''}
+      <h4>Asked</h4><pre class="small">${esc(run.input || '')}</pre>
+      <h4>Answered</h4><pre class="small">${esc(run.output || '')}</pre>
+      <h4>Steps</h4>
+      ${(run.steps || []).length
+        ? (run.steps || []).map((s) => `<div class="citation"><strong>${esc(s.kind)}</strong> <span class="mono small">${esc(s.name || '')}</span>
+            ${s.input ? `<br /><span class="muted small">in: ${esc(s.input)}</span>` : ''}
+            ${s.output ? `<br /><span class="muted small">out: ${esc(s.output)}</span>` : ''}</div>`).join('')
+        : '<p class="empty">No steps: the model answered without retrieval or tools.</p>'}`;
+
+    panel.append(box);
+    box.querySelector('[data-action="run-close"]').addEventListener('click', () => box.remove());
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
   // The audit log's filter. The page renders the last seven days server-side; this re-queries.
   $('#audit-filter')?.addEventListener('submit', (ev) => {
     ev.preventDefault();

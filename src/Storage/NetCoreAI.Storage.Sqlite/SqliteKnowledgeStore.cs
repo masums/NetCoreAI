@@ -355,7 +355,69 @@ internal sealed class SqliteRunStore(IDbContextFactory<NetCoreAIDbContext> facto
         }
 
         row.Json = SqliteMetadataStore.Serialize(run);
+
+        // Copied out of the JSON so usage can be filtered and totalled in SQL. Nulls stay null: a run
+        // whose provider reported no usage is not a run that used nothing.
+        row.ModelId = run.ModelId;
+        row.UserId = run.UserId;
+        row.InputTokens = run.InputTokens;
+        row.OutputTokens = run.OutputTokens;
+        row.Cost = run.EstimatedCost is { } cost ? (double)cost : null;
+        row.Success = run.Success;
+        row.ElapsedMs = run.ElapsedMs;
+
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<RunTrace>> QueryAsync(RunQuery query, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await Filter(db, query)
+            .OrderByDescending(r => r.StartedAtTicks)
+            .Skip(Math.Max(0, query.Offset))
+            .Take(Math.Clamp(query.Limit, 1, 500))
+            .Select(r => r.Json)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        return [.. Search(rows.Select(SqliteMetadataStore.Deserialize<RunTrace>), query.Search)];
+    }
+
+    public async Task<int> CountAsync(RunQuery query, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        return await Filter(db, query).CountAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<UsageSummary> SummariseAsync(RunQuery query, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+
+        // Only the columns, never the JSON. A month of runs is a lot of text to pull across a process
+        // boundary in order to add up seven numbers.
+        var rows = await Filter(db, query)
+            .Select(r => new Row(r.AgentId, r.ModelId, r.UserId, r.InputTokens, r.OutputTokens, r.Cost, r.Success, r.ElapsedMs, r.StartedAtTicks))
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        var elapsed = rows.Where(r => r.ElapsedMs is not null).Select(r => r.ElapsedMs!.Value).Order().ToList();
+
+        return new UsageSummary(rows.Count, rows.Count(r => r.Success == false))
+        {
+            InputTokens = rows.Sum(r => (long?)r.InputTokens ?? 0),
+            OutputTokens = rows.Sum(r => (long?)r.OutputTokens ?? 0),
+            Cost = rows.Sum(r => (decimal?)r.Cost ?? 0),
+            MedianElapsedMs = elapsed.Count == 0 ? 0 : elapsed[elapsed.Count / 2],
+            Unmeasured = rows.Count(r => r.InputTokens is null && r.OutputTokens is null),
+            ByAgent = Group(rows, r => r.AgentId),
+            ByModel = Group(rows, r => r.ModelId ?? "(not recorded)"),
+            ByUser = Group(rows, r => r.UserId ?? "(not signed in)"),
+            ByDay = Days(rows, query),
+        };
     }
 
     public async Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken cancellationToken = default)
@@ -363,6 +425,109 @@ internal sealed class SqliteRunStore(IDbContextFactory<NetCoreAIDbContext> facto
         await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         var cutoff = olderThan.UtcTicks;
         return await db.Runs.Where(r => r.StartedAtTicks < cutoff).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private readonly record struct Row(
+        string AgentId, string? ModelId, string? UserId, int? InputTokens, int? OutputTokens,
+        double? Cost, bool? Success, long? ElapsedMs, long StartedAtTicks);
+
+    private static IQueryable<RunRow> Filter(NetCoreAIDbContext db, RunQuery query)
+    {
+        var rows = db.Runs.AsNoTracking().AsQueryable();
+
+        if (query.AgentId is { Length: > 0 } agent)
+        {
+            rows = rows.Where(r => r.AgentId == agent);
+        }
+
+        if (query.ModelId is { Length: > 0 } model)
+        {
+            rows = rows.Where(r => r.ModelId == model);
+        }
+
+        if (query.UserId is { Length: > 0 } user)
+        {
+            rows = rows.Where(r => r.UserId == user);
+        }
+
+        if (query.Success is { } success)
+        {
+            rows = rows.Where(r => r.Success == success);
+        }
+
+        if (query.Since is { } since)
+        {
+            var ticks = since.UtcTicks;
+            rows = rows.Where(r => r.StartedAtTicks >= ticks);
+        }
+
+        if (query.Until is { } until)
+        {
+            var ticks = until.UtcTicks;
+            rows = rows.Where(r => r.StartedAtTicks <= ticks);
+        }
+
+        return rows;
+    }
+
+    /// <summary>
+    /// Narrows a page of runs by free text.
+    /// </summary>
+    /// <remarks>
+    /// Applied after the page is read, not in SQL. The question and the answer live inside the JSON, so a
+    /// database-side match would be a scan of every row of text — and the honest version of that is a
+    /// full-text index, which is a bigger thing than this. Said plainly so nobody mistakes what this does:
+    /// it searches the page you are looking at, not the whole history.
+    /// </remarks>
+    private static IEnumerable<RunTrace> Search(IEnumerable<RunTrace> runs, string? search) =>
+        search is not { Length: > 0 }
+            ? runs
+            : runs.Where(r =>
+                (r.Input?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (r.Output?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    private static List<UsageBreakdown> Group(List<Row> rows, Func<Row, string> key) =>
+        [.. rows.GroupBy(key)
+            .Select(g => new UsageBreakdown(g.Key, g.Count())
+            {
+                Tokens = g.Sum(r => (long?)r.InputTokens ?? 0) + g.Sum(r => (long?)r.OutputTokens ?? 0),
+                Cost = g.Sum(r => (decimal?)r.Cost ?? 0),
+            })
+            .OrderByDescending(b => b.Tokens)
+            .ThenBy(b => b.Key, StringComparer.Ordinal)];
+
+    /// <summary>
+    /// One entry per day in the period, including the days nothing happened.
+    /// </summary>
+    /// <remarks>
+    /// A chart drawn only from days that have runs joins Monday to Thursday with a straight line, and
+    /// invents two days of activity that did not happen.
+    /// </remarks>
+    private static List<UsageBreakdown> Days(List<Row> rows, RunQuery query)
+    {
+        if (rows.Count == 0)
+        {
+            return [];
+        }
+
+        var first = (query.Since ?? new DateTimeOffset(rows.Min(r => r.StartedAtTicks), TimeSpan.Zero)).UtcDateTime.Date;
+        var last = (query.Until ?? new DateTimeOffset(rows.Max(r => r.StartedAtTicks), TimeSpan.Zero)).UtcDateTime.Date;
+        var byDay = rows
+            .GroupBy(r => new DateTimeOffset(r.StartedAtTicks, TimeSpan.Zero).UtcDateTime.Date)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var days = new List<UsageBreakdown>();
+        for (var day = first; day <= last && days.Count < 400; day = day.AddDays(1))
+        {
+            var hits = byDay.GetValueOrDefault(day) ?? [];
+            days.Add(new UsageBreakdown(day.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), hits.Count)
+            {
+                Tokens = hits.Sum(r => (long?)r.InputTokens ?? 0) + hits.Sum(r => (long?)r.OutputTokens ?? 0),
+                Cost = hits.Sum(r => (decimal?)r.Cost ?? 0),
+            });
+        }
+
+        return days;
     }
 }
 

@@ -15,7 +15,15 @@
 5. **Versioning & publishing** — agents (draft/published/rollback/changelog), tools (versions, deprecation warnings), JSON bundle export/import.
 6. **Built-in tools** — done. Knowledge search, date/time, calculator, allow-listed HTTP fetch, read-only SQL query with row limits. Fetch and SQL are unregistered until configured; fetch takes an exact-host allow-list, refuses address literals and does not follow redirects; SQL refuses anything but a single SELECT and caps rows.
 7. **Security & tenancy** — done, bar a dashboard tenant switcher. Audit log, multi-tenancy with quotas, data-residency switch. The audit log covers models, connections, tools, agents, knowledge bases and API keys, and records a guardrail refusal whatever the run setting says — a refusal is not a run, it is somebody being told no. Runs themselves are opt-in (`Audit.IncludeRuns`), because they already have traces and recording both doubles the busiest write path to say the same thing twice. A failed audit write is logged and swallowed: a log that can fail a save is a log that gets switched off the first time it does. The retention sweep that keeps it (and run traces) from growing forever is new too — `PruneAsync` had existed on both stores since Phase 1 and nothing ever called it.
-8. **Observability** — usage analytics (tokens/cost per agent/model/user/connection), run history browser with trace export, alerts via host `IEmailSender`/webhook.
+8. **Observability** — usage analytics and the run history browser are done; alerts via host `IEmailSender`/webhook are outstanding.
+
+Both read from the run traces that were already being written. There is no separate accounting table,
+because a second copy kept for reporting disagrees with the traces the first time a run is written by a
+path that forgot to update it. The figures the Usage page shows are the same rows the run's own trace
+shows. Seven columns were lifted out of the JSON so the totals can be done in SQL, all of them nullable —
+a run from before those columns existed reads as "not recorded" rather than as zero, and the summary
+reports how many of those there were rather than folding them in. That nullability is also what let the
+schema upgrade add them to an existing database without asking anyone anything.
 9. **Compatibility & embedding** — OpenAI-compatible `/v1/chat/completions` + `/v1/embeddings` (`model` = alias or agent id), embeddable chat widget (Razor component + JS snippet, CSS variables).
 10. **Playground P1** — compare mode (2–3 models), attachments (text/PDF inline extraction).
 11. **Stores** — `VectorStore.Postgres` (pgvector), `VectorStore.Qdrant`, `Storage.SqlServer`, `Storage.Postgres`, migration tool between vector stores.

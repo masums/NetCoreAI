@@ -89,6 +89,7 @@ public static class NetCoreAIEndpointRouteBuilderExtensions
         ApiKeysApi.Map(api);
         AuditApi.Map(api);
         TenantsApi.Map(api);
+        UsageApi.Map(api);
         ProvidersApi.Map(api);
         ChatApi.Map(api);
         SettingsApi.Map(api);

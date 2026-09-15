@@ -145,6 +145,7 @@ public static class NetCoreAIServiceCollectionExtensions
         // Live traffic for the overview page, and per-call cost from connection pricing.
         services.TryAddSingleton<IUsageTracker, UsageTracker>();
         services.TryAddSingleton<ICostEstimator, CostEstimator>();
+        services.TryAddSingleton<IUsageAnalytics, UsageAnalytics>();
 
         // Guardrails. The ledger is a singleton because a budget shared between two instances of it is no
         // budget at all.
