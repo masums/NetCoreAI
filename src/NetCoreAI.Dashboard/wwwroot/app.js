@@ -94,6 +94,7 @@
       case 'key-close': { const k = $('#key-detail'); if (k) k.hidden = true; return; }
       case 'key-delete': return confirm(`Revoke "${name}"? Anything using it stops working at once.`) && guarded(async () => { await call('DELETE', `keys/${encodeURIComponent(id)}`); reload(); }, btn);
       case 'agent-edit': return guarded(() => openAgent(id), btn);
+      case 'agent-embed': return showEmbedSnippet(id, btn.dataset.name);
       case 'agent-try': return openAgentPlayground(id, name);
       case 'agent-runs': return guarded(() => openAgentRuns(id, name), btn);
       case 'agent-close': { const a = $('#agent-detail'); if (a) a.hidden = true; return; }
@@ -631,6 +632,30 @@
     panel.append(box);
     box.querySelector('[data-action="run-close"]').addEventListener('click', () => box.remove());
     box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // The snippet that puts an agent on one of the host's own pages.
+  function showEmbedSnippet(id, name) {
+    const src = `${location.origin}${base}/_content/widget.js`;
+    const snippet = `<script src="${src}" data-agent="${id}" data-title="Ask ${name}"><\/script>`;
+
+    $('#agent-detail-title').textContent = `Embed ${name}`;
+    $('#agent-detail-body').innerHTML = `
+      <p class="muted">Paste this into a page of this application. The widget talks to this host as the
+      signed-in visitor, so it carries no key — and must not be given one, because a key in a page is a
+      public key.</p>
+      <pre class="small" id="embed-snippet">${esc(snippet)}</pre>
+      <p class="muted small">Restyle it with CSS variables on <code>.netcoreai-widget</code>:
+      <code>--ncai-accent</code>, <code>--ncai-bg</code>, <code>--ncai-radius</code>,
+      <code>--ncai-width</code>. Optional attributes: <code>data-title</code>,
+      <code>data-greeting</code>, <code>data-placement="left"</code>.</p>
+      <button class="btn" data-action="embed-copy">Copy</button>`;
+
+    agentDetail.hidden = false;
+    agentDetail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    $('[data-action="embed-copy"]').addEventListener('click', () => {
+      navigator.clipboard.writeText(snippet).then(() => toast('Copied.'), () => toast('Could not copy; select it by hand.'));
+    });
   }
 
   // The audit log's filter. The page renders the last seven days server-side; this re-queries.

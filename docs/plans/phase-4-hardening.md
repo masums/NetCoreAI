@@ -32,7 +32,7 @@ reach it would put it in every host that references NetCoreAI. `AddAlertSink(lam
 mailer in one line instead. Most of the work here is not noticing trouble but declining to mention it
 twice — the same condition alerts once per quiet period, and an error rate is ignored until enough runs
 have happened for it to mean anything.
-9. **Compatibility & embedding** — the OpenAI-compatible endpoint is done; the embeddable chat widget is outstanding.
+9. **Compatibility & embedding** — done. The OpenAI-compatible endpoint and the embeddable chat widget.
 
 A translation layer rather than a second API: everything NetCoreAI can do that OpenAI's shape cannot
 express stays on the native API, and nothing there invents a field to carry it. `model` accepts a model, an
@@ -42,6 +42,18 @@ resend the whole conversation and an agent keeps its own memory. Errors use Open
 problem document, since a client reads `error.message` and would otherwise report "an error occurred" for
 everything. Fields the host cannot honour are ignored rather than refused. Not implemented: function
 calling through this endpoint, `n > 1`, logprobs, vision.
+
+The widget is a script tag, themed entirely through CSS variables so a host restyles it without touching
+the file. It carries no API key and has no attribute for one: a key in a page is a public key, so the
+visitor's own session decides whether a run is allowed, and a public assistant needs the host's own
+endpoint in front of it. Answers are written as text rather than markup, which also rules out rendered
+markdown — a widget that put model output into innerHTML on somebody's page would be a scripting hole with
+a friendly face. Cross-origin embedding is out of scope: it needs CORS and a credential story that is not a
+cookie, both of which are decisions about a deployment rather than defaults to pick.
+
+Building it found a real bug in the default-deny branch of `ApplyAuthorization`: it is an endpoint filter
+rather than an authorization policy, so `.AllowAnonymous()` under it did nothing. Anything marked anonymous
+now gets it.
 10. **Playground P1** — compare mode (2–3 models), attachments (text/PDF inline extraction).
 11. **Stores** — `VectorStore.Postgres` (pgvector), `VectorStore.Qdrant`, `Storage.SqlServer`, `Storage.Postgres`, migration tool between vector stores.
 12. **Model ops** — testing & benchmarks (tokens/s, TTFT, memory, history), version updates with rollback, backup/restore.

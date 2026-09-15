@@ -124,7 +124,15 @@ public static class NetCoreAIEndpointRouteBuilderExtensions
         }
 
         // Default deny with an explanation instead of a bare 403 or a login redirect loop.
+        //
+        // An endpoint that asked for AllowAnonymous still gets it. This is a filter rather than an
+        // authorization policy, and a filter does not know about AllowAnonymous unless it is told — so
+        // without this, marking something anonymous under this branch did nothing, which is worse than
+        // not offering the option. The widget script is the case that found it: it goes on the host's own
+        // pages, and a script only the dashboard can fetch can only appear on the dashboard.
         group.AddEndpointFilter((ctx, next) =>
-            ValueTask.FromResult<object?>(Results.Content(ForbiddenPage.Html, "text/html; charset=utf-8", statusCode: StatusCodes.Status403Forbidden)));
+            ctx.HttpContext.GetEndpoint()?.Metadata.GetMetadata<IAllowAnonymous>() is not null
+                ? next(ctx)
+                : ValueTask.FromResult<object?>(Results.Content(ForbiddenPage.Html, "text/html; charset=utf-8", statusCode: StatusCodes.Status403Forbidden)));
     }
 }

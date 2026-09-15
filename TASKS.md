@@ -164,7 +164,7 @@ Not a product phase, but required before Phase 1 can start.
 - [x] Run history browser with full traces, filters, export — *filter by agent, model, person, outcome and period; CSV export is formula-safe. Free-text search covers the page you are on, not the whole history — that wants a full-text index*
 - [x] Alerts (disk low, load failure, error-rate spike) via host `IEmailSender`/webhook — *a log sink everybody gets, a webhook sink, and `AddAlertSink(lambda)` for a host's own mailer rather than a dependency on ASP.NET Core Identity for one interface; the same condition alerts once per quiet period, and an error rate needs a minimum number of runs before it means anything*
 - [x] OpenAI-compatible `POST /netcoreai/v1/chat/completions` + `/v1/embeddings` — *plus `GET /v1/models`; `model` may be a model, an alias or an agent id. Errors use OpenAI's envelope rather than a problem document, and unhonourable fields are ignored rather than refused — see [docs/guides/openai-compatible.md](docs/guides/openai-compatible.md). No function calling, `n > 1`, logprobs or vision through this endpoint*
-- [ ] Embeddable chat widget (Razor component/JS snippet, CSS-variable theming)
+- [x] Embeddable chat widget (Razor component/JS snippet, CSS-variable theming) — *carries no API key and has no attribute for one, because a key in a page is a public key; answers are written as text rather than markup. Cross-origin embedding is not supported — see [docs/guides/chat-widget.md](docs/guides/chat-widget.md)*
 - [ ] Compare mode (§7.4.2): 2–3 models side by side
 - [ ] Chat attachments (§7.4.3): file upload + text/PDF inline extraction
 - [ ] `VectorStore.Postgres` (pgvector), `VectorStore.Qdrant`; migration tool between stores
