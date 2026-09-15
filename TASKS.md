@@ -166,7 +166,7 @@ Not a product phase, but required before Phase 1 can start.
 - [x] OpenAI-compatible `POST /netcoreai/v1/chat/completions` + `/v1/embeddings` — *plus `GET /v1/models`; `model` may be a model, an alias or an agent id. Errors use OpenAI's envelope rather than a problem document, and unhonourable fields are ignored rather than refused — see [docs/guides/openai-compatible.md](docs/guides/openai-compatible.md). No function calling, `n > 1`, logprobs or vision through this endpoint*
 - [x] Embeddable chat widget (Razor component/JS snippet, CSS-variable theming) — *carries no API key and has no attribute for one, because a key in a page is a public key; answers are written as text rather than markup. Cross-origin embedding is not supported — see [docs/guides/chat-widget.md](docs/guides/chat-widget.md)*
 - [ ] Compare mode (§7.4.2): 2–3 models side by side
-- [ ] Chat attachments (§7.4.3): file upload + text/PDF inline extraction
+- [x] Chat attachments (§7.4.3): file upload + text/PDF inline extraction — *read for one turn and not stored as a knowledge base; the text is capped and the cut is announced inside the text where the model will read it, and a file is introduced as material rather than as instructions*
 - [~] `VectorStore.Postgres` (pgvector), `VectorStore.Qdrant`; migration tool between stores — *the migration tool is done and store-agnostic: it copies vectors rather than re-embedding, refuses to merge into an existing collection, and leaves the source alone. **Postgres and Qdrant are still outstanding.***
 - [ ] Model testing & benchmarks (§7.3.3): one-click test, tokens/sec, TTFT, memory, benchmark history
 - [ ] Model versioning & updates (§7.3.4): detect newer HF revisions, update with rollback

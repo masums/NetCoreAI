@@ -119,7 +119,17 @@ cookie, both of which are decisions about a deployment rather than defaults to p
 Building it found a real bug in the default-deny branch of `ApplyAuthorization`: it is an endpoint filter
 rather than an authorization policy, so `.AllowAnonymous()` under it did nothing. Anything marked anonymous
 now gets it.
-10. **Playground P1** — compare mode (2–3 models), attachments (text/PDF inline extraction).
+10. **Playground P1** — chat attachments done; compare mode outstanding.
+
+An attachment belongs to the turn it came with: read once, put in front of the model, forgotten. A file
+somebody wants answers from repeatedly belongs in a knowledge base, where it gets chunked, embedded, cited
+and access-controlled — all of which this deliberately skips, and the guide says so rather than letting
+people discover it by uploading the same PDF every morning. The whole text goes into the prompt, so a long
+document does not fit and cannot be made to: it is capped, and the cut is announced inside the text where
+the model will read it, because a model handed a document that stops mid-sentence answers about the part it
+has as though that were the whole thing. Files are introduced as material rather than as instructions — a
+document the model reads as instructions is a way to instruct the model by uploading a file, which is the
+injection reasoning applied to a caller's file rather than their message.
 11. **Stores** — the migration tool is done; `VectorStore.Postgres`, `VectorStore.Qdrant` and the shared metadata stores are outstanding.
 
 The migrator is store-agnostic and needed writing before either new store, since a store nobody can move

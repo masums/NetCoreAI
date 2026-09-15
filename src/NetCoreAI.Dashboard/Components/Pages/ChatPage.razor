@@ -37,9 +37,11 @@
         </div>
         <form id="chat-form" class="chat-input">
             <textarea id="chat-text" rows="2" placeholder="Message… (Enter to send, Shift+Enter for newline)" required></textarea>
+            <label class="btn" title="Attach a file to this message">Attach…<input type="file" id="chat-attach" hidden /></label>
             <button class="btn primary" type="submit" id="send">Send</button>
             <button class="btn" type="button" id="stop" hidden>Stop</button>
         </form>
+        <div id="chat-attachments" class="muted small"></div>
     </section>
 
     <aside class="chat-params card" id="params" hidden>

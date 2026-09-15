@@ -285,3 +285,34 @@ carrying a vector of a thousand floats.
 
 Access tags, metadata and document ids travel with each chunk. A migration that dropped the tags would
 quietly publish restricted passages to everyone in the new store.
+
+## Attaching a file to one message
+
+The chat playground has an **Attach…** button; the API is `POST /api/chat/attachments`, which returns the
+extracted text for you to send with the next message.
+
+**This is not a knowledge base.** An attachment belongs to the turn it came with: read once, put in front
+of the model, forgotten. A file somebody wants answers from repeatedly should be *ingested* instead, where
+it gets chunked, embedded, cited and access-controlled — none of which happens here.
+
+Which sets the limit. The whole text goes into the prompt, so a long document does not fit and cannot be
+made to. Files are capped at 32,000 characters by default — roughly 8,000 tokens, chosen to leave room for
+the conversation in a 16k context rather than to fill a large one.
+
+**A cut file says so, inside the text:**
+
+> `[This file was cut off here: it is 412,880 characters and only the first 32,000 were included.]`
+
+Because a model handed a document that stops mid-sentence will answer about the part it has as though that
+were the whole thing, and say so with confidence. The dashboard also says it in the message line.
+
+Attached files are introduced to the model as **material to read, not as instructions**. A document the
+model reads as instructions is a way to instruct the model by uploading a file — the same reasoning the
+[injection guardrail](guardrails.md) applies to a caller's message, applied to a caller's file.
+
+Formats are whatever extractors are registered: text, Markdown, CSV, JSON and logs always; PDF, DOCX, PPTX,
+XLSX and HTML with the `NetCoreAI.Documents` package. `GET /api/chat/attachments/supported` returns the
+list, so a file picker can filter on what this host can actually read.
+
+The attachment text is stored with the turn in the conversation history. A transcript that reads
+differently when reopened than it did when it happened is a transcript of nothing.

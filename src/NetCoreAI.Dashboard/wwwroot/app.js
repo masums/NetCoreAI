@@ -1412,6 +1412,9 @@
       const botDiv = addMessage('assistant', '', {});
       botDiv.querySelector('.bubble').classList.add('cursor');
       sendBtn.disabled = true; stopBtn.hidden = false; textEl.value = ''; delete textEl.dataset.replace;
+      const sentAttachments = attachments;
+      attachments = [];
+      renderAttachments();
       abort = new AbortController();
       let acc = '';
       try {
@@ -1428,6 +1431,10 @@
             knowledgeBaseIds: $$('.kb-pick:checked').map((c) => c.value),
             retrieval: retrievalSettings(),
             includeRetrievedPassages: $('#r-debug')?.checked === true,
+
+            // This turn's files. Cleared below, because an attachment belongs to the message it came
+            // with — silently resending it every turn would cost the context window and surprise people.
+            attachments: sentAttachments,
           }),
         });
         if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
@@ -1501,6 +1508,50 @@
       if (saved !== null) { if (el.type === 'checkbox') el.checked = saved === 'true'; else el.value = saved; }
       el.addEventListener('change', () => localStorage.setItem(key, el.type === 'checkbox' ? el.checked : el.value));
     }
+
+    // Files attached to the next message. Held here rather than uploaded with the message, so the text is
+    // extracted and shown before anything is sent — a 400-page PDF should not be discovered afterwards.
+    let attachments = [];
+
+    function renderAttachments() {
+      const list = $('#chat-attachments');
+      if (!list) return;
+      list.innerHTML = attachments.length
+        ? attachments.map((a, i) => `${esc(a.fileName)} (${a.originalCharacters.toLocaleString()} chars${a.truncated ? ', cut to fit' : ''}) `
+            + `<button class="btn small" data-remove="${i}">remove</button>`).join(' ')
+        : '';
+    }
+
+    $('#chat-attach')?.addEventListener('change', (ev) => {
+      const file = ev.target.files?.[0];
+      ev.target.value = '';
+      if (!file) return;
+
+      guarded(async () => {
+        const body = new FormData();
+        body.append('file', file, file.name);
+        const response = await fetch(api('chat/attachments'), { method: 'POST', body, credentials: 'same-origin' });
+        if (!response.ok) {
+          const problem = await response.json().catch(() => null);
+          toast(problem?.detail || `That file could not be read (HTTP ${response.status}).`);
+          return;
+        }
+
+        const attachment = await response.json();
+        attachments.push(attachment);
+        renderAttachments();
+        if (attachment.truncated) {
+          toast(`${attachment.fileName} was cut to fit the model's context.`);
+        }
+      });
+    });
+
+    $('#chat-attachments')?.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-remove]');
+      if (!btn) return;
+      attachments.splice(Number(btn.dataset.remove), 1);
+      renderAttachments();
+    });
 
     chatForm.addEventListener('submit', (ev) => { ev.preventDefault(); send(textEl.value, textEl.dataset.replace); });
     textEl.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); chatForm.requestSubmit(); } });

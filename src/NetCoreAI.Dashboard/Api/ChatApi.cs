@@ -42,6 +42,49 @@ internal static class ChatApi
             }
         }).WithName("NetCoreAI.Chat");
 
+        // Reading a file for one turn of a conversation. The text comes straight back rather than being
+        // stored: it belongs to the message it came with, and a file somebody wants answers from
+        // repeatedly should be ingested into a knowledge base instead.
+        api.MapPost("/chat/attachments", async (
+            HttpRequest request,
+            NetCoreAI.Knowledge.IAttachmentReader reader,
+            CancellationToken ct) =>
+        {
+            if (!request.HasFormContentType)
+            {
+                return Results.Problem("Send the file as multipart/form-data.", statusCode: StatusCodes.Status400BadRequest, title: "Not a file upload");
+            }
+
+            Microsoft.AspNetCore.Http.IFormCollection form;
+            try
+            {
+                form = await request.ReadFormAsync(ct);
+            }
+            catch (InvalidDataException ex)
+            {
+                // A malformed body is the caller's mistake, not a fault here. Without this it surfaces as
+                // an unhandled exception and a 500, which tells an upload client nothing it can act on.
+                return Results.Problem(
+                    $"That upload could not be read: {ex.Message}",
+                    statusCode: StatusCodes.Status400BadRequest,
+                    title: "Malformed upload");
+            }
+
+            var file = form.Files.Count > 0 ? form.Files[0] : null;
+            if (file is null || file.Length == 0)
+            {
+                return Results.Problem("No file was attached.", statusCode: StatusCodes.Status400BadRequest, title: "Nothing to read");
+            }
+
+            await using var content = file.OpenReadStream();
+            var attachment = await reader.ReadAsync(content, file.FileName, file.ContentType, cancellationToken: ct);
+
+            return Results.Ok(attachment);
+        }).WithName("NetCoreAI.Chat.Attach").DisableAntiforgery();
+
+        api.MapGet("/chat/attachments/supported", (NetCoreAI.Knowledge.IAttachmentReader reader) =>
+            Results.Ok(reader.SupportedExtensions)).WithName("NetCoreAI.Chat.AttachmentTypes");
+
         var sessions = api.MapGroup("/sessions");
         sessions.MapGet("/", async (IChatService chat, HttpContext http, CancellationToken ct) =>
             Results.Ok(await chat.ListSessionsAsync(UserId(http), ct))).WithName("NetCoreAI.Sessions.List");
