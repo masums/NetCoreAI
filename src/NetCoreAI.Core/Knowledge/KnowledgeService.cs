@@ -54,6 +54,7 @@ internal sealed class KnowledgeService(
     IEnumerable<IVectorStore> vectorStores,
     IEnumerable<IKnowledgeSource> hostSources,
     IOptionsMonitor<NetCoreAIOptions> options,
+    NetCoreAI.Security.IAuditLog audit,
     ILogger<KnowledgeService> logger) : IKnowledgeService
 {
     private readonly List<IDataSource> _dataSources = [.. dataSources];
@@ -79,6 +80,15 @@ internal sealed class KnowledgeService(
 
         await store.Knowledge.UpsertAsync(knowledgeBase, cancellationToken).ConfigureAwait(false);
         logger.LogInformation("Created knowledge base {Id} ({Name}) using embedding model {Model}.", knowledgeBase.Id, knowledgeBase.Name, knowledgeBase.EmbeddingModel);
+
+        await audit.WriteAsync(
+            NetCoreAI.Security.AuditAction.Created,
+            NetCoreAI.Security.AuditEntity.KnowledgeBase,
+            knowledgeBase.Id,
+            knowledgeBase.Name,
+            $"embedding model {knowledgeBase.EmbeddingModel}",
+            cancellationToken).ConfigureAwait(false);
+
         return knowledgeBase;
     }
 
@@ -97,6 +107,20 @@ internal sealed class KnowledgeService(
         }
 
         await store.Knowledge.UpsertAsync(knowledgeBase, cancellationToken).ConfigureAwait(false);
+
+        await audit.WriteAsync(
+            NetCoreAI.Security.AuditAction.Updated,
+            NetCoreAI.Security.AuditEntity.KnowledgeBase,
+            knowledgeBase.Id,
+            knowledgeBase.Name,
+
+            // Access tags decide who can read the passages in it, so a change to them is the one worth
+            // seeing without opening the base.
+            knowledgeBase.DefaultAclTags.SequenceEqual(existing.DefaultAclTags, StringComparer.OrdinalIgnoreCase)
+                ? null
+                : $"default access tags now: {(knowledgeBase.DefaultAclTags.Count == 0 ? "none — new documents readable by anyone" : string.Join(", ", knowledgeBase.DefaultAclTags))}",
+            cancellationToken).ConfigureAwait(false);
+
         return knowledgeBase;
     }
 
@@ -117,6 +141,12 @@ internal sealed class KnowledgeService(
         }
 
         await store.Knowledge.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
+        await audit.WriteAsync(
+            NetCoreAI.Security.AuditAction.Deleted,
+            NetCoreAI.Security.AuditEntity.KnowledgeBase,
+            id,
+            knowledgeBase.Name,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         // Uploaded files belong to the base and would otherwise sit in the data directory for ever.
         var folder = FileDataSource.UploadFolder(options.CurrentValue.DataDirectory, id);

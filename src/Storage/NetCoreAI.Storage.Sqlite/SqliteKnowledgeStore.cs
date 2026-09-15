@@ -413,3 +413,79 @@ internal sealed class SqliteApiKeyStore(IDbContextFactory<NetCoreAIDbContext> fa
         await db.ApiKeys.Where(k => k.Id == id).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
     }
 }
+
+/// <summary>
+/// Who did what. Append-only by construction: there is no update path, and the only delete is retention.
+/// </summary>
+internal sealed class SqliteAuditStore(IDbContextFactory<NetCoreAIDbContext> factory) : IAuditStore
+{
+    public async Task<IReadOnlyList<NetCoreAI.Security.AuditEntry>> ListAsync(
+        NetCoreAI.Security.AuditFilter filter,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var query = db.Audit.AsNoTracking().AsQueryable();
+
+        if (filter.EntityType is { Length: > 0 } type)
+        {
+            query = query.Where(a => a.EntityType == type);
+        }
+
+        if (filter.EntityId is { Length: > 0 } entityId)
+        {
+            query = query.Where(a => a.EntityId == entityId);
+        }
+
+        if (filter.ActorId is { Length: > 0 } actorId)
+        {
+            query = query.Where(a => a.ActorId == actorId);
+        }
+
+        if (filter.Action is { Length: > 0 } action)
+        {
+            query = query.Where(a => a.Action == action);
+        }
+
+        if (filter.Since is { } since)
+        {
+            var ticks = since.UtcTicks;
+            query = query.Where(a => a.AtTicks >= ticks);
+        }
+
+        var rows = await query
+            .OrderByDescending(a => a.AtTicks)
+            .Take(Math.Clamp(filter.Limit, 1, 1000))
+            .Select(a => a.Json)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        return [.. rows.Select(SqliteMetadataStore.Deserialize<NetCoreAI.Security.AuditEntry>)];
+    }
+
+    public async Task WriteAsync(NetCoreAI.Security.AuditEntry entry, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        db.Audit.Add(new AuditRow
+        {
+            Id = entry.Id,
+            AtTicks = entry.At.UtcTicks,
+            Action = entry.Action,
+            EntityType = entry.EntityType,
+            EntityId = entry.EntityId,
+            ActorId = entry.ActorId,
+            Json = SqliteMetadataStore.Serialize(entry),
+        });
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var cutoff = olderThan.UtcTicks;
+        return await db.Audit.Where(a => a.AtTicks < cutoff).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+    }
+}

@@ -41,6 +41,43 @@ and are re-indexed. After 1.0 this becomes a real migration; the schema is not f
 
 Back the database up before upgrading if any of that would hurt. It is one file.
 
+### The audit log
+
+Who created, changed or deleted a model, connection, tool, agent, knowledge base or API key, and when. On
+the **Audit log** page, or `GET /api/audit`. It is append-only: nothing writes over an entry, and the only
+way a row leaves is retention.
+
+```jsonc
+"NetCoreAI": {
+  "Audit":   { "Enabled": true, "RetentionDays": 365, "IncludeRuns": false },
+  "Storage": { "RunRetentionDays": 90 }
+}
+```
+
+`IncludeRuns` is off because every run already writes a trace, and recording both doubles the busiest write
+path to say the same thing twice. A guardrail **refusal** is recorded either way — a refusal is not a run,
+it is somebody being told no, and that is what an audit log is for.
+
+Three things worth knowing about what is in it:
+
+- **Names are copied at the time**, not looked up later. Half the point is explaining something that has
+  since been deleted, and "agent 7f3a… was deleted" answers nobody's question.
+- **Secrets are never recorded** — not an API key's secret, not its hash, not a connection's credential.
+  Changes to one are recorded as "secret replaced", because a diff of a secret is a copy of it.
+- **An API key is distinguished from a person.** "The billing service deleted it" and "someone deleted it"
+  lead to different next questions.
+
+A write that fails is logged and swallowed rather than failing the operation it was recording. That is a
+deliberate trade: a missing entry is a gap you can see, and an audit log that can fail a save is one that
+gets switched off the first time it does. Set `RetentionDays` to 0 to keep entries forever — worth doing
+deliberately, since this is the one table nobody notices growing.
+
+Both retention settings are applied by a daily sweep, which also prunes run traces. Traces carry whatever
+people asked an agent, which is both the reason to keep them and the reason not to keep them indefinitely.
+
+You can write your own entries through `IAuditLog` — a host's own actions belong in the same log as
+NetCoreAI's.
+
 ### Watching disk
 
 The Storage page (and `GET /api/storage`) reports what each local model costs, what the data directory totals, and how much room is left on the volume. Remote models cost nothing locally and are left out. A model whose files have gone missing is listed as such rather than quietly dropped, which is the usual sign that a data directory moved between deployments.

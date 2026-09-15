@@ -56,6 +56,7 @@ internal sealed partial class AgentService(
     IModelRegistry registry,
     NetCoreAI.Telemetry.ICostEstimator costs,
     NetCoreAI.Guardrails.IGuardrailService guardrails,
+    NetCoreAI.Security.IAuditLog audit,
     Microsoft.Extensions.Options.IOptions<NetCoreAIOptions> options,
     ILogger<AgentService> logger) : IAgentService
 {
@@ -99,13 +100,29 @@ internal sealed partial class AgentService(
         }
 
         var saved = agent with { UpdatedAt = DateTimeOffset.UtcNow };
+        var existed = await store.Agents.GetAsync(saved.Id, cancellationToken).ConfigureAwait(false) is not null;
         await store.Agents.UpsertAsync(saved, cancellationToken).ConfigureAwait(false);
         logger.LogInformation("Saved agent {Name} ({Id}).", saved.Name, saved.Id);
+
+        await audit.WriteAsync(
+            existed ? NetCoreAI.Security.AuditAction.Updated : NetCoreAI.Security.AuditAction.Created,
+            NetCoreAI.Security.AuditEntity.Agent,
+            saved.Id,
+            saved.Name,
+
+            // What it can reach, which is the part of an agent worth reviewing afterwards.
+            $"model {saved.Model}, {saved.ToolIds.Count} tool(s), {saved.Knowledge.Count} knowledge base(s)",
+            cancellationToken).ConfigureAwait(false);
+
         return saved;
     }
 
-    public Task DeleteAsync(string id, CancellationToken cancellationToken = default) =>
-        store.Agents.DeleteAsync(id, cancellationToken);
+    public async Task DeleteAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var agent = await store.Agents.GetAsync(id, cancellationToken).ConfigureAwait(false);
+        await store.Agents.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
+        await audit.WriteAsync(NetCoreAI.Security.AuditAction.Deleted, NetCoreAI.Security.AuditEntity.Agent, id, agent?.Name, cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
 
     public Task<IReadOnlyList<RunTrace>> ListRunsAsync(string? agentId = null, int limit = 50, CancellationToken cancellationToken = default) =>
         store.Runs.ListAsync(agentId, limit, cancellationToken);
@@ -229,6 +246,17 @@ internal sealed partial class AgentService(
             await FailAsync(run, steps, input.BlockedReason!, started, cancellationToken).ConfigureAwait(false);
             Record(agent, activity, false, (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, input.BlockedReason);
             NetCoreAI.Telemetry.NetCoreAITelemetry.GuardrailBlocks.Add(1, new System.Diagnostics.TagList { { "agent", agent.Id } });
+
+            // Recorded whatever the audit settings say about runs. A refusal is not a run, it is somebody
+            // being told no, and that is exactly the kind of thing an audit log exists for.
+            await audit.WriteAsync(
+                NetCoreAI.Security.AuditAction.Refused,
+                NetCoreAI.Security.AuditEntity.Agent,
+                agent.Id,
+                agent.Name,
+                string.Join(", ", input.Findings.Select(f => f.Rule).Distinct()),
+                CancellationToken.None).ConfigureAwait(false);
+
             yield return new AgentEvent(AgentEvent.ErrorType) { Error = input.BlockedReason };
             yield break;
         }
@@ -408,6 +436,20 @@ internal sealed partial class AgentService(
         };
 
         await store.Runs.UpsertAsync(finished, CancellationToken.None).ConfigureAwait(false);
+
+        if (options.Value.Audit.IncludeRuns)
+        {
+            await audit.WriteAsync(
+                NetCoreAI.Security.AuditAction.Ran,
+                NetCoreAI.Security.AuditEntity.Agent,
+                agent.Id,
+                agent.Name,
+
+                // The run id rather than the question: the trace already holds what was asked, and copying
+                // it here would put the same conversation in two tables with two retention settings.
+                $"run {finished.Id}",
+                CancellationToken.None).ConfigureAwait(false);
+        }
 
         guardrails.RecordUsage(
             agent.Id,

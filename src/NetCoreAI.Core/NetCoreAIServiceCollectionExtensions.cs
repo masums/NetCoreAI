@@ -149,6 +149,17 @@ public static class NetCoreAIServiceCollectionExtensions
         services.TryAddSingleton<NetCoreAI.Guardrails.IBudgetLedger, NetCoreAI.Guardrails.BudgetLedger>();
         services.TryAddSingleton<NetCoreAI.Guardrails.IGuardrailService, NetCoreAI.Guardrails.GuardrailService>();
 
+        // Who changed what, and the sweep that stops the audit and run tables growing forever.
+        services.TryAddSingleton<NetCoreAI.Security.IAuditLog, NetCoreAI.Security.AuditLog>();
+        services.AddOptions<NetCoreAI.Security.AuditOptions>()
+            .Configure<IOptions<NetCoreAIOptions>>((audit, root) =>
+            {
+                audit.Enabled = root.Value.Audit.Enabled;
+                audit.RetentionDays = root.Value.Audit.RetentionDays;
+                audit.IncludeRuns = root.Value.Audit.IncludeRuns;
+            });
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, NetCoreAI.Storage.RetentionService>());
+
         services.TryAddSingleton<IConnectionManager, ConnectionManager>();
         services.TryAddSingleton<SettingsService>();
         services.TryAddSingleton<ISettingsService>(sp => sp.GetRequiredService<SettingsService>());

@@ -52,7 +52,7 @@ public interface IApiKeyService
 /// a deliberate simplification — a shared counter needs a shared store, which NetCoreAI does not require —
 /// and it is written down rather than left for someone to discover from a bill.
 /// </remarks>
-internal sealed class ApiKeyService(IMetadataStore store, ILogger<ApiKeyService> logger) : IApiKeyService
+internal sealed class ApiKeyService(IMetadataStore store, IAuditLog audit, ILogger<ApiKeyService> logger) : IApiKeyService
 {
     /// <summary>Marks a NetCoreAI key at a glance, in a log or a pasted configuration file.</summary>
     private const string Prefix = "ncai_";
@@ -86,6 +86,14 @@ internal sealed class ApiKeyService(IMetadataStore store, ILogger<ApiKeyService>
         logger.LogInformation("Issued API key {Name} ({Prefix}…) scoped to {Agents} agent(s) and {Bases} base(s).",
             saved.Name, saved.Prefix, saved.AgentIds.Count, saved.KnowledgeBaseIds.Count);
 
+        await audit.WriteAsync(
+            AuditAction.Created,
+            AuditEntity.ApiKey,
+            saved.Id,
+            saved.Name,
+            $"{saved.Prefix}…, {saved.AgentIds.Count} agent(s), {saved.KnowledgeBaseIds.Count} knowledge base(s)",
+            cancellationToken).ConfigureAwait(false);
+
         return new CreatedApiKey(saved, secret);
     }
 
@@ -100,11 +108,26 @@ internal sealed class ApiKeyService(IMetadataStore store, ILogger<ApiKeyService>
         // them would let anyone replace a key's secret with one they chose.
         var saved = key with { Hash = existing.Hash, Prefix = existing.Prefix, CreatedAt = existing.CreatedAt };
         await store.ApiKeys.UpsertAsync(saved, cancellationToken).ConfigureAwait(false);
+
+        await audit.WriteAsync(
+            AuditAction.Updated,
+            AuditEntity.ApiKey,
+            saved.Id,
+            saved.Name,
+            saved.Enabled == existing.Enabled ? null : saved.Enabled ? "re-enabled" : "disabled",
+            cancellationToken).ConfigureAwait(false);
+
         return saved;
     }
 
-    public Task DeleteAsync(string id, CancellationToken cancellationToken = default) =>
-        store.ApiKeys.DeleteAsync(id, cancellationToken);
+    public async Task DeleteAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var key = await store.ApiKeys.GetAsync(id, cancellationToken).ConfigureAwait(false);
+        await store.ApiKeys.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
+
+        // Revoking a credential is the entry somebody comes looking for after an incident.
+        await audit.WriteAsync(AuditAction.Deleted, AuditEntity.ApiKey, id, key?.Name, key is null ? null : $"{key.Prefix}…", cancellationToken).ConfigureAwait(false);
+    }
 
     public async Task<ApiKeyResult> AuthenticateAsync(string secret, IPAddress? address, CancellationToken cancellationToken = default)
     {

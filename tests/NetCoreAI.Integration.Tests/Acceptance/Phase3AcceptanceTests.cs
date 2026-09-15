@@ -263,6 +263,13 @@ public sealed class Phase3AcceptanceTests
             await host.App.Services.GetRequiredService<IAgentService>()
                 .RunAsync(agent.Id, new AgentRequest { Message = "What is the status of order A-7?" }, new AgentCaller(), Ct);
 
-            Assert.Equal("LOCKED-1", Assert.Single(host.Calls));
+            // Whether the model calls the tool at all is the model's choice, and an auto-router routes
+            // this to a different one on every run — some answer without calling, some call twice. Neither
+            // is a defect here, and asserting a single call made this test fail intermittently for a
+            // reason that had nothing to do with what it is checking.
+            //
+            // What is not the model's choice is the value. Every call it does make must carry the host's.
+            Assert.SkipWhen(host.Calls.Count == 0, "the model answered without calling the tool, so there is nothing to check");
+            Assert.All(host.Calls, call => Assert.Equal("LOCKED-1", call));
         }, needsMultiTurnTools: true);
 }

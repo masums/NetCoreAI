@@ -27,6 +27,7 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
     public DbSet<AgentRow> Agents => Set<AgentRow>();
     public DbSet<RunRow> Runs => Set<RunRow>();
     public DbSet<ApiKeyRow> ApiKeys => Set<ApiKeyRow>();
+    public DbSet<AuditRow> Audit => Set<AuditRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -97,6 +98,17 @@ public sealed class NetCoreAIDbContext(DbContextOptions<NetCoreAIDbContext> opti
 
             // Every authenticated call looks a key up by hash, so this index is on the hot path.
             e.HasIndex(x => x.Hash).IsUnique();
+        });
+        modelBuilder.Entity<AuditRow>(e =>
+        {
+            e.ToTable("Audit");
+            e.HasKey(x => x.Id);
+
+            // The two questions an audit log is opened to answer: what happened lately, and what happened
+            // to this one thing.
+            e.HasIndex(x => x.AtTicks);
+            e.HasIndex(x => new { x.EntityType, x.EntityId, x.AtTicks });
+            e.HasIndex(x => new { x.ActorId, x.AtTicks });
         });
         modelBuilder.Entity<RunRow>(e =>
         {
@@ -225,6 +237,21 @@ public sealed class ApiKeyRow
 {
     public string Id { get; set; } = "";
     public string Hash { get; set; } = "";
+    public string Json { get; set; } = "";
+}
+
+/// <summary>
+/// One audit entry. The columns are the ones a filter uses; everything else is in the JSON, like every
+/// other row here.
+/// </summary>
+public sealed class AuditRow
+{
+    public string Id { get; set; } = "";
+    public long AtTicks { get; set; }
+    public string Action { get; set; } = "";
+    public string EntityType { get; set; } = "";
+    public string? EntityId { get; set; }
+    public string? ActorId { get; set; }
     public string Json { get; set; } = "";
 }
 

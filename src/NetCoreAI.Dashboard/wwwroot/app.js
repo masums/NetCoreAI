@@ -544,6 +544,33 @@
     try { return JSON.parse($('#agent-options')?.textContent || '{}'); } catch { return {}; }
   })();
 
+  // The audit log's filter. The page renders the last seven days server-side; this re-queries.
+  $('#audit-filter')?.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const d = formData(ev.target);
+    const query = new URLSearchParams({ limit: '200' });
+    for (const [key, value] of Object.entries(d)) {
+      if (value) query.set(key, value);
+    }
+
+    guarded(async () => {
+      const entries = await call('GET', `audit?${query}`);
+      const body = $('#audit-table')?.querySelector('tbody');
+      if (!body) {
+        location.reload();
+        return;
+      }
+
+      body.innerHTML = entries.length
+        ? entries.map((e) => `<tr>
+            <td class="small" title="${esc(e.at)}">${esc(new Date(e.at).toLocaleString())}</td>
+            <td class="small"><strong>${esc(e.actorName || 'unknown')}</strong>${e.actorKind !== 'User' ? ` <span class="tag">${esc(e.actorKind)}</span>` : ''}${e.ipAddress ? `<br /><span class="muted mono small">${esc(e.ipAddress)}</span>` : ''}</td>
+            <td class="small">${esc(e.action)} <strong>${esc(e.entityName || e.entityId || '')}</strong><br /><span class="muted">${esc(e.entityType)}</span></td>
+            <td class="small muted">${esc(e.detail || '')}</td></tr>`).join('')
+        : '<tr><td colspan="4" class="empty">Nothing matched that.</td></tr>';
+    });
+  });
+
   $('#agent-form')?.addEventListener('submit', (ev) => {
     ev.preventDefault();
     const d = formData(ev.target);

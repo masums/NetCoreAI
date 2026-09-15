@@ -35,6 +35,8 @@ public interface IMetadataStore
     IRunStore Runs { get; }
 
     IApiKeyStore ApiKeys { get; }
+
+    IAuditStore Audit { get; }
 }
 
 public interface IModelStore
@@ -148,6 +150,17 @@ public interface IRunStore
     Task UpsertAsync(RunTrace run, CancellationToken cancellationToken = default);
 
     /// <summary>Removes runs older than the cutoff, so the table does not grow without bound.</summary>
+    Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken cancellationToken = default);
+}
+
+/// <summary>Who did what. Append-only: there is no update, and the only delete is retention.</summary>
+public interface IAuditStore
+{
+    Task<IReadOnlyList<NetCoreAI.Security.AuditEntry>> ListAsync(NetCoreAI.Security.AuditFilter filter, CancellationToken cancellationToken = default);
+
+    Task WriteAsync(NetCoreAI.Security.AuditEntry entry, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes entries older than the cutoff. The only way a row leaves this table.</summary>
     Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken cancellationToken = default);
 }
 

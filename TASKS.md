@@ -157,7 +157,7 @@ Not a product phase, but required before Phase 1 can start.
 - [ ] Agent versioning & publishing (§7.7.5): draft → published, rollback, changelog, environment export/import
 - [ ] Tool groups & versioning (§7.6.5): toolsets, versioned definitions, deprecation warnings
 - [x] Built-in tools (§7.6.6): knowledge search, date/time, calculator, allow-listed HTTP fetch, read-only SQL query with row limits — *the two with outside reach are not registered at all until configured, rather than present and refusing*
-- [ ] Audit log (who created/changed/deleted models/tools/agents/KBs, who ran what)
+- [x] Audit log (who created/changed/deleted models/tools/agents/KBs, who ran what) — *append-only, on by default, kept a year; runs are opt-in because they already have traces, but a guardrail refusal is always recorded; a write that fails never fails the thing it was recording*
 - [ ] Multi-tenant mode: tenant resolver, per-tenant models/KBs/agents/quotas/storage paths
 - [ ] Data residency switch: block remote providers/outbound calls except allow-listed mirrors
 - [ ] Usage analytics: token accounting per agent/model/user

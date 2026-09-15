@@ -35,6 +35,7 @@ internal sealed partial class ToolService(
     IMetadataStore store,
     IEndpointDiscovery discovery,
     ICodeToolSource codeTools,
+    NetCoreAI.Security.IAuditLog audit,
     ILogger<ToolService> logger) : IToolService
 {
     [GeneratedRegex("^[a-zA-Z][a-zA-Z0-9_]{0,63}$")]
@@ -89,8 +90,21 @@ internal sealed partial class ToolService(
         saved = AuthorizeInProcess(saved, allowInProcessBy);
         ValidateParameters(saved);
 
+        var existed = await store.Tools.GetAsync(saved.Id, cancellationToken).ConfigureAwait(false) is not null;
         await store.Tools.UpsertAsync(saved, cancellationToken).ConfigureAwait(false);
         logger.LogInformation("Saved tool {Name} ({Kind}, {Mode}).", saved.Name, saved.Kind, saved.InvocationMode);
+
+        await audit.WriteAsync(
+            existed ? NetCoreAI.Security.AuditAction.Updated : NetCoreAI.Security.AuditAction.Created,
+            NetCoreAI.Security.AuditEntity.Tool,
+            saved.Id,
+            saved.Name,
+
+            // In-process is the setting worth seeing in a log without opening the tool: it is the one that
+            // decides whether a model's call runs inside this host.
+            saved.InvocationMode == ToolInvocationMode.InProcess ? "runs in-process" : null,
+            cancellationToken).ConfigureAwait(false);
+
         return saved;
     }
 
@@ -159,8 +173,14 @@ internal sealed partial class ToolService(
         }
     }
 
-    public Task DeleteAsync(string id, CancellationToken cancellationToken = default) =>
-        store.Tools.DeleteAsync(id, cancellationToken);
+    public async Task DeleteAsync(string id, CancellationToken cancellationToken = default)
+    {
+        // Read before deleting, so the audit entry can carry the name. Afterwards there is nothing to
+        // look it up from, and "tool 7f3a… was deleted" answers nobody's question.
+        var tool = await store.Tools.GetAsync(id, cancellationToken).ConfigureAwait(false);
+        await store.Tools.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
+        await audit.WriteAsync(NetCoreAI.Security.AuditAction.Deleted, NetCoreAI.Security.AuditEntity.Tool, id, tool?.Name, cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
 
     public async Task<ToolDefinition> CreateFromEndpointAsync(string endpointId, CancellationToken cancellationToken = default)
     {

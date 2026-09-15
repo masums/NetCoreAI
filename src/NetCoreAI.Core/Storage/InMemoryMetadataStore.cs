@@ -23,6 +23,7 @@ public sealed class InMemoryMetadataStore : IMetadataStore
     private readonly ConcurrentDictionary<string, AgentDefinition> _agents = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, RunTrace> _runs = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, ApiKey> _apiKeys = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, NetCoreAI.Security.AuditEntry> _audit = new(StringComparer.OrdinalIgnoreCase);
 
     public InMemoryMetadataStore()
     {
@@ -38,6 +39,7 @@ public sealed class InMemoryMetadataStore : IMetadataStore
         Agents = new AgentStore(_agents);
         Runs = new RunStore(_runs);
         ApiKeys = new ApiKeyStore(_apiKeys);
+        Audit = new AuditStore(_audit);
     }
 
     public IModelStore Models { get; }
@@ -52,6 +54,7 @@ public sealed class InMemoryMetadataStore : IMetadataStore
     public IAgentStore Agents { get; }
     public IRunStore Runs { get; }
     public IApiKeyStore ApiKeys { get; }
+    public IAuditStore Audit { get; }
 
     public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
@@ -87,6 +90,37 @@ public sealed class InMemoryMetadataStore : IMetadataStore
         public Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default)
         {
             var stale = d.Values.Where(r => r.StartedAt < olderThan).Select(r => r.Id).ToList();
+            foreach (var id in stale)
+            {
+                d.TryRemove(id, out _);
+            }
+
+            return Task.FromResult(stale.Count);
+        }
+    }
+
+    private sealed class AuditStore(ConcurrentDictionary<string, NetCoreAI.Security.AuditEntry> d) : IAuditStore
+    {
+        public Task<IReadOnlyList<NetCoreAI.Security.AuditEntry>> ListAsync(NetCoreAI.Security.AuditFilter filter, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<NetCoreAI.Security.AuditEntry>>(d.Values
+                .Where(a => filter.EntityType is not { Length: > 0 } || a.EntityType == filter.EntityType)
+                .Where(a => filter.EntityId is not { Length: > 0 } || a.EntityId == filter.EntityId)
+                .Where(a => filter.ActorId is not { Length: > 0 } || a.ActorId == filter.ActorId)
+                .Where(a => filter.Action is not { Length: > 0 } || a.Action == filter.Action)
+                .Where(a => filter.Since is not { } since || a.At >= since)
+                .OrderByDescending(a => a.At)
+                .Take(Math.Clamp(filter.Limit, 1, 1000))
+                .ToList());
+
+        public Task WriteAsync(NetCoreAI.Security.AuditEntry entry, CancellationToken ct = default)
+        {
+            d[entry.Id] = entry;
+            return Task.CompletedTask;
+        }
+
+        public Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default)
+        {
+            var stale = d.Values.Where(a => a.At < olderThan).Select(a => a.Id).ToList();
             foreach (var id in stale)
             {
                 d.TryRemove(id, out _);
