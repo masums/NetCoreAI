@@ -39,6 +39,26 @@ internal static class BackupApi
         bundles.MapPost("/import", async (Bundle bundle, IBundleService service, ImportMode mode = ImportMode.Validate, CancellationToken ct = default) =>
             Results.Ok(await service.ImportAsync(bundle, mode, ct))).WithName("NetCoreAI.Bundles.Import");
 
+        // Moving indexed vectors to a different store — SQLite to Postgres, say — without re-embedding
+        // anything, which would cost a call per chunk and change what the base retrieves.
+        api.MapPost("/vectors/migrate", async (
+            NetCoreAI.Knowledge.IVectorStoreMigrator migrator,
+            string from,
+            string to,
+            string? collections,
+            bool replace = false,
+            bool dryRun = true,
+            CancellationToken ct = default) =>
+            Results.Ok(await migrator.MigrateAsync(
+                from,
+                to,
+                collections is { Length: > 0 }
+                    ? collections.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    : null,
+                replace,
+                dryRun,
+                ct))).WithName("NetCoreAI.Vectors.Migrate");
+
         // A snapshot of the metadata database. Not the whole data directory: models and uploaded files are
         // large, already on disk, and a backup route that copied them would time out on any real host.
         api.MapPost("/backup", async (

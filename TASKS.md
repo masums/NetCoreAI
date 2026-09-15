@@ -167,7 +167,7 @@ Not a product phase, but required before Phase 1 can start.
 - [x] Embeddable chat widget (Razor component/JS snippet, CSS-variable theming) — *carries no API key and has no attribute for one, because a key in a page is a public key; answers are written as text rather than markup. Cross-origin embedding is not supported — see [docs/guides/chat-widget.md](docs/guides/chat-widget.md)*
 - [ ] Compare mode (§7.4.2): 2–3 models side by side
 - [ ] Chat attachments (§7.4.3): file upload + text/PDF inline extraction
-- [ ] `VectorStore.Postgres` (pgvector), `VectorStore.Qdrant`; migration tool between stores
+- [~] `VectorStore.Postgres` (pgvector), `VectorStore.Qdrant`; migration tool between stores — *the migration tool is done and store-agnostic: it copies vectors rather than re-embedding, refuses to merge into an existing collection, and leaves the source alone. **Postgres and Qdrant are still outstanding.***
 - [ ] Model testing & benchmarks (§7.3.3): one-click test, tokens/sec, TTFT, memory, benchmark history
 - [ ] Model versioning & updates (§7.3.4): detect newer HF revisions, update with rollback
 - [x] KB evaluation (§7.5.6): QA test sets, retrieval hit rate, LLM-judge faithfulness scoring — *hit rate and MRR together, because retrieval that finds the right document in position eight every time has a perfect hit rate and produces bad answers. Built for comparing two configurations rather than for an absolute number; a set written from the documents flatters every configuration equally, and the guide says so — see [docs/guides/knowledge.md](docs/guides/knowledge.md)*

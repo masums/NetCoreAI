@@ -11,7 +11,7 @@ namespace NetCoreAI.VectorStores.Sqlite;
 /// SIMD (<see cref="TensorPrimitives"/>). Correct and fast enough up to a few hundred thousand chunks;
 /// larger sets should move to pgvector/Qdrant (Phase 4) or sqlite-vec acceleration.
 /// </summary>
-public sealed class SqliteVectorStore : IVectorStore, IKeywordSearchable, IDisposable
+public sealed class SqliteVectorStore : IVectorStore, IKeywordSearchable, IVectorEnumerable, IDisposable
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly string _connectionString;
@@ -398,4 +398,66 @@ public sealed class SqliteVectorStore : IVectorStore, IKeywordSearchable, IDispo
         return AclTag.Allows(acl, filter.CallerTags);
     }
 
+    /// <summary>
+    /// Every chunk in a collection, streamed in id order.
+    /// </summary>
+    /// <remarks>
+    /// Ordered by id so a copy interrupted halfway can be reasoned about, and paged by that same id rather
+    /// than by OFFSET: a deep OFFSET makes SQLite walk everything it is skipping, so the last page of a
+    /// large collection would cost more than the whole of the first.
+    /// </remarks>
+    public async IAsyncEnumerable<VectorRecord> ReadAllAsync(
+        string collection,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        const int Page = 500;
+        var after = "";
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            await using var db = await OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var cmd = db.CreateCommand();
+            cmd.CommandText = "SELECT id, document_id, embedding, text, metadata, acl FROM chunks WHERE collection=$c AND id > $after ORDER BY id LIMIT $n";
+            cmd.Parameters.AddWithValue("$c", collection);
+            cmd.Parameters.AddWithValue("$after", after);
+            cmd.Parameters.AddWithValue("$n", Page);
+
+            var read = 0;
+            var records = new List<VectorRecord>(Page);
+
+            await using (var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            {
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    var id = reader.GetString(0);
+                    var blob = (byte[])reader[2];
+                    var vector = new float[blob.Length / sizeof(float)];
+                    Buffer.BlockCopy(blob, 0, vector, 0, blob.Length);
+
+                    records.Add(new VectorRecord(
+                        id,
+                        reader.GetString(1),
+                        vector,
+                        reader.GetString(3),
+                        JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(4), Json) ?? [],
+                        JsonSerializer.Deserialize<List<string>>(reader.GetString(5), Json) ?? []));
+
+                    after = id;
+                    read++;
+                }
+            }
+
+            foreach (var record in records)
+            {
+                yield return record;
+            }
+
+            if (read < Page)
+            {
+                yield break;
+            }
+        }
+    }
 }

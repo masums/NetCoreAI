@@ -257,3 +257,31 @@ average rather than a zero — scoring a chatty model as "completely unsupported
 retrieval problem.
 
 Evaluation runs ignore access tags: they measure what the base can find, not what one person may see.
+
+## Moving to a different vector store
+
+```
+POST /api/vectors/migrate?from=sqlite&to=postgres            # dry run: says what it would do
+POST /api/vectors/migrate?from=sqlite&to=postgres&dryRun=false
+```
+
+It **copies the vectors** rather than re-embedding the documents. Re-embedding would cost an embedding call
+per chunk and — worse — produce different numbers if the model has changed since, turning a change of
+database into a silent change of what the base retrieves.
+
+Three things it will not do:
+
+- **Merge.** A collection the target already has is skipped, and named in the result. Two stores holding
+  overlapping chunk ids from different indexing runs produce a collection that is neither, and nobody would
+  know which. Pass `replace=true` to drop the target's copy first.
+- **Delete from the source.** A migration that emptied the old store as it went would leave you with no way
+  back from a half-finished one. Switch stores in configuration once the copy is verified, then remove the
+  old file by hand.
+- **Guess.** A store that cannot list its chunks says so rather than reporting success having copied
+  nothing. For those, re-index the documents into the new store instead.
+
+It runs 500 chunks at a time and streams: a modest knowledge base is hundreds of thousands of chunks, each
+carrying a vector of a thousand floats.
+
+Access tags, metadata and document ids travel with each chunk. A migration that dropped the tags would
+quietly publish restricted passages to everyone in the new store.

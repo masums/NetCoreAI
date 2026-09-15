@@ -55,6 +55,27 @@ public interface IKeywordSearchable
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// A store that can hand back everything it holds, one chunk at a time.
+/// </summary>
+/// <remarks>
+/// Optional, and what makes a migration between stores possible. A store that cannot do this can still be
+/// migrated <em>into</em>; getting data out of it means re-indexing the documents, which is slower and
+/// produces different vectors if the embedding model has moved on since.
+/// </remarks>
+public interface IVectorEnumerable
+{
+    /// <summary>
+    /// Every chunk in a collection, streamed.
+    /// </summary>
+    /// <remarks>
+    /// Streamed rather than returned as a list on purpose: a modest knowledge base is hundreds of
+    /// thousands of chunks, each carrying a vector of a thousand floats, and a migration that held one in
+    /// memory would be a migration that only worked on small ones.
+    /// </remarks>
+    IAsyncEnumerable<VectorRecord> ReadAllAsync(string collection, CancellationToken cancellationToken = default);
+}
+
 public interface IVectorStore
 {
     string Id { get; }

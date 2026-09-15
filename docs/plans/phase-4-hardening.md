@@ -120,7 +120,16 @@ Building it found a real bug in the default-deny branch of `ApplyAuthorization`:
 rather than an authorization policy, so `.AllowAnonymous()` under it did nothing. Anything marked anonymous
 now gets it.
 10. **Playground P1** — compare mode (2–3 models), attachments (text/PDF inline extraction).
-11. **Stores** — `VectorStore.Postgres` (pgvector), `VectorStore.Qdrant`, `Storage.SqlServer`, `Storage.Postgres`, migration tool between vector stores.
+11. **Stores** — the migration tool is done; `VectorStore.Postgres`, `VectorStore.Qdrant` and the shared metadata stores are outstanding.
+
+The migrator is store-agnostic and needed writing before either new store, since a store nobody can move
+onto is a store nobody adopts. It copies vectors rather than re-embedding them: re-generating would cost an
+embedding call per chunk and produce different numbers if the model has moved on since, turning a change of
+database into a silent change of what the base retrieves. It refuses to merge into a collection the target
+already has — two stores holding overlapping chunk ids from different indexing runs produce a collection
+that is neither — and it never deletes from the source, so a half-finished migration still has a way back.
+Reading a store's chunks back out is an optional `IVectorEnumerable`; a store that cannot is migrated into
+rather than out of, and says so instead of reporting success having copied nothing.
 12. **Model ops** — testing & benchmarks (tokens/s, TTFT, memory, history), version updates with rollback, backup/restore.
 13. **Ecosystem** — plugin manifest + NuGet discovery for third-party providers; `IAgentEventHandler`, webhooks, SignalR hub for host UIs.
 14. **Quality** — WCAG 2.1 AA pass, localisation (resx; English + Bengali), docs site, release notes, 1.0 API review of `Abstractions`.

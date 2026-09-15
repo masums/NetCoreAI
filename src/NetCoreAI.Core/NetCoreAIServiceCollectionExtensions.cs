@@ -148,6 +148,7 @@ public static class NetCoreAIServiceCollectionExtensions
         services.TryAddSingleton<IUsageAnalytics, UsageAnalytics>();
         services.TryAddSingleton<NetCoreAI.Storage.IBundleService, NetCoreAI.Storage.BundleService>();
         services.TryAddSingleton<NetCoreAI.Knowledge.IKnowledgeEvaluator, NetCoreAI.Knowledge.KnowledgeEvaluator>();
+        services.TryAddSingleton<NetCoreAI.Knowledge.IVectorStoreMigrator, NetCoreAI.Knowledge.VectorStoreMigrator>();
 
         // Guardrails. The ledger is a singleton because a budget shared between two instances of it is no
         // budget at all.
