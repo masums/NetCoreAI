@@ -19,6 +19,20 @@ internal static class NetCoreAIHttp
     /// <summary>Model downloads: no overall timeout, because a single file can take an hour.</summary>
     public const string DownloadClient = "NetCoreAI.Download";
 
+    /// <summary>
+    /// Adds offline-mode enforcement to a client NetCoreAI owns.
+    /// </summary>
+    /// <remarks>
+    /// Every outbound client goes through this. A residency switch that covers some of the ways out of
+    /// the process is not a residency switch.
+    /// </remarks>
+    public static IHttpClientBuilder EnforceOfflineMode(this IHttpClientBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        builder.Services.AddTransient<OfflineModeHandler>();
+        return builder.AddHttpMessageHandler<OfflineModeHandler>();
+    }
+
     public static void AddNetCoreAIHttpClients(this IServiceCollection services)
     {
         services.AddTransient<OfflineModeHandler>();
@@ -55,10 +69,14 @@ internal static class NetCoreAIHttp
 }
 
 /// <summary>
-/// Single enforcement point for offline mode: every NetCoreAI-initiated request is refused unless its host
-/// is allow-listed, so an air-gapped or data-residency deployment cannot leak a call through a code path
-/// that forgot to check the setting.
+/// Single enforcement point for offline mode.
 /// </summary>
+/// <remarks>
+/// Attached to every HTTP client NetCoreAI owns — hub browsing, model downloads, tool invocation, the
+/// built-in fetch tool — so an air-gapped or data-residency deployment cannot leak a call through a code
+/// path that forgot to check the setting. Provider packages bring their own clients and are checked
+/// against the same policy when their connection is resolved.
+/// </remarks>
 internal sealed class OfflineModeHandler(IOptionsMonitor<NetCoreAIOptions> options) : DelegatingHandler
 {
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -66,31 +84,11 @@ internal sealed class OfflineModeHandler(IOptionsMonitor<NetCoreAIOptions> optio
         ArgumentNullException.ThrowIfNull(request);
 
         var network = options.CurrentValue.Network;
-        if (network.OfflineMode && request.RequestUri is { } uri && !IsAllowed(uri, network))
+        if (!EgressPolicy.IsAllowed(request.RequestUri, network))
         {
-            throw new OfflineModeException(
-                $"Offline mode is on, so NetCoreAI did not call {uri.Host}. Turn it off in settings, or add the host to Network.AllowedHosts if it is an internal mirror.");
+            throw new OfflineModeException(EgressPolicy.Refusal(request.RequestUri?.Host ?? "an unnamed host"));
         }
 
         return base.SendAsync(request, cancellationToken);
-    }
-
-    private static bool IsAllowed(Uri uri, NetworkOptions network)
-    {
-        if (uri.IsLoopback)
-        {
-            return true;
-        }
-
-        foreach (var host in network.AllowedHosts)
-        {
-            if (host.Equals(uri.Host, StringComparison.OrdinalIgnoreCase)
-                || (host.StartsWith("*.", StringComparison.Ordinal) && uri.Host.EndsWith(host[1..], StringComparison.OrdinalIgnoreCase)))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

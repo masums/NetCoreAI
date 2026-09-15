@@ -109,6 +109,12 @@ public sealed class FetchTool(IHttpClientFactory factory, IOptionsMonitor<BuiltI
             var text = await ReadCappedAsync(response, settings.FetchMaxBytes, cancellationToken).ConfigureAwait(false);
             return text.Length == 0 ? $"{address} returned nothing readable." : text;
         }
+        catch (NetCoreAI.Hub.OfflineModeException ex)
+        {
+            // Handed back rather than thrown. A tool that throws ends the turn, and this is not a fault:
+            // the host has said where it may talk, and the model should be able to say so.
+            return ex.Message;
+        }
         catch (HttpRequestException ex)
         {
             return $"{address} could not be reached: {ex.Message}";

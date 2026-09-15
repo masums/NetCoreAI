@@ -69,7 +69,7 @@ public abstract class RemoteModelProviderBase(IMetadataStore store, ISecretResol
             throw new ConnectionNotFoundException(connectionId);
         }
 
-        if (Options.Network.OfflineMode && !IsAllowedHost(connection.BaseUrl))
+        if (!NetCoreAI.Hub.EgressPolicy.IsAllowed(connection.BaseUrl, Options.Network))
         {
             throw new RemoteProvidersDisabledException($"{connection.Name} (offline mode)");
         }
@@ -98,16 +98,6 @@ public abstract class RemoteModelProviderBase(IMetadataStore store, ISecretResol
             Capabilities = capabilities ?? DefaultCapabilities(remoteModelId),
             DefaultParameters = connection.DefaultParameters,
         };
-
-    private bool IsAllowedHost(string? baseUrl)
-    {
-        if (string.IsNullOrEmpty(baseUrl) || !Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri))
-        {
-            return false;
-        }
-
-        return uri.IsLoopback || Options.Network.AllowedHosts.Any(h => string.Equals(h, uri.Host, StringComparison.OrdinalIgnoreCase));
-    }
 
     protected static bool LooksLikeEmbeddingModel(string id)
         => id.Contains("embed", StringComparison.OrdinalIgnoreCase) || id.Contains("bge", StringComparison.OrdinalIgnoreCase) || id.Contains("e5-", StringComparison.OrdinalIgnoreCase) || id.Contains("minilm", StringComparison.OrdinalIgnoreCase);

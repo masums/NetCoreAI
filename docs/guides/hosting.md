@@ -114,4 +114,37 @@ Prompt and completion text stay out of traces unless you set `o.Telemetry.Enable
 
 ## Air-gapped and restricted networks
 
-`o.Network.OfflineMode = true` blocks Hub browsing, downloads and remote providers, except loopback and hosts listed in `o.Network.AllowedHosts`. Proxy and Hugging Face mirror endpoints are configurable in settings.
+`o.Network.OfflineMode = true` is also the **data-residency switch**: nothing leaves the process except to
+loopback and the hosts named in `o.Network.AllowedHosts`.
+
+```jsonc
+"NetCoreAI": {
+  "Network": {
+    "OfflineMode": true,
+    "AllowedHosts": ["mirror.internal", "*.gateway.example.com"],
+    "HuggingFaceEndpoint": "https://mirror.internal/hf",
+    "ProxyUrl": "http://proxy.internal:3128"
+  }
+}
+```
+
+Covered: Hub browsing, model downloads, **tool invocation**, the **built-in fetch tool**, and remote
+provider connections. The first two were the only ones enforced before; a tool is a URL a model can reach,
+which makes it a way out of the process like any other.
+
+Three rules worth knowing:
+
+- **Loopback is always allowed.** This machine is not somewhere else — a local Ollama, a sidecar, an
+  endpoint tool calling the host's own routes. Refusing them would make the switch unusable exactly where
+  it is most wanted.
+- **`*.example.com` covers subdomains and nothing that merely resembles one.** `mirror.example.com` yes,
+  `evil-example.com` no. A plain suffix match is the usual way an allow-list turns out to allow everything.
+- **A remote provider is refused when its connection is resolved**, before any request is built — so a
+  provider package that brings its own `HttpClient` is covered without needing the handler.
+
+The fetch tool has its own allow-list as well, and a fetch has to satisfy both: the tool's says where a
+model may look, the host's says where this process may talk at all. A refusal comes back to the model as a
+sentence rather than an exception, because a tool that throws ends the turn.
+
+Proxy and Hugging Face mirror endpoints are configurable in settings, and both are subject to the same
+allow-list — pointing `HuggingFaceEndpoint` at a mirror you have not allowed simply fails.

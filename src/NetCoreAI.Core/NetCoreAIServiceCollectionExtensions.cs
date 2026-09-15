@@ -138,7 +138,9 @@ public static class NetCoreAIServiceCollectionExtensions
 
         // Named, so a host can give tool traffic its own handlers — a proxy, a client certificate, a
         // retry policy — without touching the clients the model providers use.
-        services.AddHttpClient(NetCoreAI.Tools.ToolInvoker.HttpClientName);
+        // A tool is a URL a model can reach, which makes it a way out of the process like any other.
+        services.AddHttpClient(NetCoreAI.Tools.ToolInvoker.HttpClientName)
+            .EnforceOfflineMode();
 
         // Live traffic for the overview page, and per-call cost from connection pricing.
         services.TryAddSingleton<IUsageTracker, UsageTracker>();
