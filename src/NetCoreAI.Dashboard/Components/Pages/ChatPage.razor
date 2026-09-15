@@ -25,6 +25,18 @@
                 {
                     <option value="@m.Descriptor.Id">@m.Descriptor.Name @(m.Status == ModelStatus.Loaded ? "● loaded" : "")</option>
                 }
+                @if (_notForChat.Count > 0)
+                {
+                    @* Listed and disabled rather than left out. Downloading a model and then not finding it
+                       here looks like the download failed; the model is fine and simply cannot chat, and
+                       this is the one place somebody goes looking to find that out. *@
+                    <optgroup label="Registered, but cannot chat">
+                        @foreach (var m in _notForChat)
+                        {
+                            <option value="" disabled>@m.Descriptor.Name — @Why(m)</option>
+                        }
+                    </optgroup>
+                }
             </select>
             <span class="spacer"></span>
             <button class="btn small" id="toggle-params">Parameters</button>
@@ -81,12 +93,25 @@
 @code {
     [Parameter] public DashboardContext Ctx { get; set; } = default!;
     private IReadOnlyList<ModelEntry> _chatModels = [];
+    private IReadOnlyList<ModelEntry> _notForChat = [];
+
+    // A model whose capabilities were never detected is offered rather than hidden: unknown is not the
+    // same as unable, and refusing to show it would strand a model that works.
+    private static bool CanChat(ModelEntry m) =>
+        m.Descriptor.Capabilities.Supports(ModelCapability.Chat) || m.Descriptor.Capabilities == ModelCapabilities.None;
+
+    private static string Why(ModelEntry m) =>
+        m.Descriptor.Capabilities.Supports(ModelCapability.Embeddings)
+            ? "an embedding model, used by knowledge bases"
+            : "no chat capability";
     private IReadOnlyList<KnowledgeBase> _knowledgeBases = [];
     private IReadOnlyList<ChatSession> _sessions = [];
 
     protected override async Task OnInitializedAsync()
     {
-        _chatModels = (await Registry.ListAsync()).Where(m => m.Descriptor.Capabilities.Supports(ModelCapability.Chat) || m.Descriptor.Capabilities == ModelCapabilities.None).ToList();
+        var all = await Registry.ListAsync();
+        _chatModels = all.Where(CanChat).ToList();
+        _notForChat = all.Where(m => !CanChat(m)).ToList();
         _sessions = await ChatService.ListSessionsAsync(null);
         _knowledgeBases = await Knowledge.ListAsync();
     }
