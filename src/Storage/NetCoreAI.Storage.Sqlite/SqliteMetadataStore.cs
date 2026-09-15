@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace NetCoreAI.Storage.Sqlite;
 
 /// <summary>SQLite metadata store at {DataDirectory}/netcoreai.db (WAL mode). Zero configuration.</summary>
-public sealed class SqliteMetadataStore : IMetadataStore
+public sealed class SqliteMetadataStore : IMetadataStore, ISnapshotSource
 {
     private readonly IDbContextFactory<NetCoreAIDbContext> _factory;
     private readonly ILogger<SqliteMetadataStore> _logger;
@@ -81,6 +81,53 @@ public sealed class SqliteMetadataStore : IMetadataStore
 
         var stale = DateTimeOffset.UtcNow.AddDays(-1).UtcTicks;
         await db.Instances.Where(i => i.LastSeenAtTicks < stale).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Writes a consistent copy of the database, while it is being written to.
+    /// </summary>
+    /// <remarks>
+    /// <c>VACUUM INTO</c> rather than a file copy. A copy of a live SQLite file catches it mid-transaction
+    /// and restores into a corrupt database — and the WAL beside it holds writes the file does not, so
+    /// copying the file alone loses whatever happened most recently. This is SQLite's own answer, it takes
+    /// a read lock rather than blocking writers, and it compacts on the way out.
+    /// </remarks>
+    public async Task SnapshotAsync(string path, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        if (File.Exists(path))
+        {
+            // VACUUM INTO refuses an existing file, and saying so here beats a SQLite error about it.
+            throw new NetCoreAIException($"'{path}' already exists. A snapshot writes a new file rather than replacing one.");
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var connection = (SqliteConnection)db.Database.GetDbConnection();
+        var opened = connection.State != System.Data.ConnectionState.Open;
+        if (opened)
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = "VACUUM INTO $path;";
+            command.Parameters.AddWithValue("$path", Path.GetFullPath(path));
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (opened)
+            {
+                await connection.CloseAsync().ConfigureAwait(false);
+            }
+        }
+
+        _logger.LogInformation("Wrote a metadata snapshot to {Path}.", path);
     }
 
     public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken = default)

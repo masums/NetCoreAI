@@ -230,6 +230,21 @@ public interface IRunStore
     Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// A store that can copy itself somewhere safe while it is running.
+/// </summary>
+/// <remarks>
+/// Optional: a store implements it if it can. Copying a live database file is the classic way to produce a
+/// backup that restores into a corrupt database, because the copy catches it mid-write — so a store that
+/// cannot do this properly should not pretend, and the backup service says plainly that no snapshot is
+/// available rather than copying the file and hoping.
+/// </remarks>
+public interface ISnapshotSource
+{
+    /// <summary>Writes a consistent copy to <paramref name="path"/>, which must not already exist.</summary>
+    Task SnapshotAsync(string path, CancellationToken cancellationToken = default);
+}
+
 /// <summary>Who did what. Append-only: there is no update, and the only delete is retention.</summary>
 public interface IAuditStore
 {

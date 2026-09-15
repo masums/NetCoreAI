@@ -12,7 +12,17 @@
 2. **Routing rules** — `RoutingPolicy` (prompt length, tool requirement, user role, cost/latency budgets) evaluated before `FallbackChatClient`.
 3. **Retrieval quality** — BM25 index (SQLite FTS5) + reciprocal rank fusion; cross-encoder re-ranker via ONNX (`bge-reranker-base`); KB evaluation (QA sets, hit rate, LLM-judge faithfulness).
 4. **Guardrails** — done. Content rules, PII masking, injection heuristics, per-role tool allow-lists, token and cost budgets. Two deviations from the plan above, both deliberate: they sit in the agent run rather than in chat-client middleware, because the input check has to happen before retrieval and before the model is chosen, and the tool allow-list has to narrow the list before the pipeline is built rather than refuse a call after the model has spent one on it; and there is no `IAgentEventHandler` yet, so findings are carried in the run trace and on a counter instead. Everything is off by default, and `GuardrailAction.Ignore` means genuinely off — no scanning, no trace entries. Budgets are counted per process.
-5. **Versioning & publishing** — agents (draft/published/rollback/changelog), tools (versions, deprecation warnings), JSON bundle export/import.
+5. **Versioning & publishing** — the JSON bundle is done; agent and tool versioning are outstanding.
+
+A bundle carries what a person built — agents, tools, knowledge base definitions and their sources — and
+nothing the environment accumulated: no documents, conversations, runs or audit entries, because carrying a
+staging server's conversations into production is not a promotion. Connections are named but never carried,
+since a bundle is a file people email and commit, and the secret is the whole of a connection's value to
+somebody who should not have it. An import defaults to validating and writing nothing, and reports what the
+bundle refers to that neither it nor the host has — the failure that costs weeks is an agent arriving
+without its tools, running, answering, and being quietly wrong. Imported tools lose their in-process
+permission: running inside this host's process is an act by a named administrator here, not something a
+file carries across.
 6. **Built-in tools** — done. Knowledge search, date/time, calculator, allow-listed HTTP fetch, read-only SQL query with row limits. Fetch and SQL are unregistered until configured; fetch takes an exact-host allow-list, refuses address literals and does not follow redirects; SQL refuses anything but a single SELECT and caps rows.
 7. **Security & tenancy** — done, bar a dashboard tenant switcher. Audit log, multi-tenancy with quotas, data-residency switch. The audit log covers models, connections, tools, agents, knowledge bases and API keys, and records a guardrail refusal whatever the run setting says — a refusal is not a run, it is somebody being told no. Runs themselves are opt-in (`Audit.IncludeRuns`), because they already have traces and recording both doubles the busiest write path to say the same thing twice. A failed audit write is logged and swallowed: a log that can fail a save is a log that gets switched off the first time it does. The retention sweep that keeps it (and run traces) from growing forever is new too — `PruneAsync` had existed on both stores since Phase 1 and nothing ever called it.
 8. **Observability** — done. Usage analytics, the run history browser, and alerts.
