@@ -27,20 +27,69 @@ public sealed class OpenAICompatibleProvider(IMetadataStore store, ISecretResolv
         new("lmstudio", "LM Studio", "http://localhost:1234/v1", false, true, []),
         new("groq", "Groq", "https://api.groq.com/openai/v1", true, true, ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen-qwq-32b"], SupportsEmbeddings: false),
         new("deepseek", "DeepSeek", "https://api.deepseek.com/v1", true, true, ["deepseek-chat", "deepseek-reasoner"], SupportsEmbeddings: false),
-        new("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", true, true, ["openai/gpt-4o-mini", "anthropic/claude-sonnet-4", "meta-llama/llama-3.3-70b-instruct"], SupportsEmbeddings: false),
+        // Embeddings are supported: /embeddings answers and returns real vectors. This said otherwise
+        // until it was checked against the live API, which hid a capability the service actually has.
+        new("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", true, true, ["openai/gpt-4o-mini", "anthropic/claude-sonnet-4", "meta-llama/llama-3.3-70b-instruct", "openai/text-embedding-3-small"]),
+        new("gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", true, true, ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-embedding-001"]),
         new("together", "Together AI", "https://api.together.xyz/v1", true, true, ["meta-llama/Llama-3.3-70B-Instruct-Turbo", "Qwen/Qwen2.5-72B-Instruct-Turbo"]),
         new("mistral", "Mistral", "https://api.mistral.ai/v1", true, true, ["mistral-large-latest", "mistral-small-latest", "mistral-embed"]),
         new("custom", "Custom OpenAI-compatible server", null, false, true, []),
     ];
 
+    /// <summary>
+    /// Whether an id names a Google model, including the "models/" prefix Gemini's listing returns.
+    /// </summary>
+    /// <remarks>
+    /// Gemini's own listing endpoint answers with "models/gemini-3.6-flash" while its curated ids and
+    /// most documentation use the bare name. Both are accepted for generation, so both arrive here.
+    /// </remarks>
+    internal static bool IsGoogle(string remoteModelId) =>
+        remoteModelId.Contains("gemini", StringComparison.OrdinalIgnoreCase)
+        || remoteModelId.Contains("gemma", StringComparison.OrdinalIgnoreCase);
+
+    protected override ModelCapabilities DefaultCapabilities(ProviderConnection connection, string remoteModelId)
+    {
+        var capabilities = DefaultCapabilities(remoteModelId);
+
+        // The tool-calling limitation is Gemini's endpoint, not Gemini's model names. That connection also
+        // serves models called things like "antigravity-preview-05-2026", which reach the same API through
+        // the same adapter and hit the same missing thought_signature — and which no amount of reading the
+        // name would reveal. Found by registering a real connection and watching those models come back
+        // claiming a capability they do not have.
+        return ApplyPresetLimits(connection.Preset, capabilities);
+    }
+
+    /// <summary>Removes capabilities a particular service cannot honour, whatever the model is called.</summary>
+    internal static ModelCapabilities ApplyPresetLimits(string? preset, ModelCapabilities capabilities) =>
+        string.Equals(preset, "gemini", StringComparison.OrdinalIgnoreCase)
+            ? capabilities with { Flags = capabilities.Flags & ~ModelCapability.ToolCalling }
+            : capabilities;
+
     protected override ModelCapabilities DefaultCapabilities(string remoteModelId)
     {
         if (LooksLikeEmbeddingModel(remoteModelId))
         {
-            return new ModelCapabilities(ModelCapability.Embeddings, EmbeddingDimensions: remoteModelId.Contains("3-large", StringComparison.OrdinalIgnoreCase) ? 3072 : 1536);
+            var dimensions =
+                remoteModelId.Contains("3-large", StringComparison.OrdinalIgnoreCase) ? 3072
+                : IsGoogle(remoteModelId) ? 3072
+                : 1536;
+
+            return new ModelCapabilities(ModelCapability.Embeddings, EmbeddingDimensions: dimensions);
         }
 
         var flags = ModelCapability.Chat | ModelCapability.Streaming | ModelCapability.ToolCalling | ModelCapability.JsonMode | ModelCapability.StructuredOutput;
+
+        // Gemini keeps everything here except tool calling, and that exclusion is deliberate. Its
+        // OpenAI-compatible endpoint returns a thought_signature inside each tool call and refuses the
+        // next turn without it; the Microsoft.Extensions.AI OpenAI adapter drops that vendor extension.
+        // One call works, the turn after it does not — and an agent loop is multi-turn by definition, so
+        // claiming the capability would let an agent choose Gemini and fail on its second step rather
+        // than be steered somewhere that works. GeminiToolLimitationTests fails when this stops being
+        // true, which is when the line below should go.
+        if (IsGoogle(remoteModelId))
+        {
+            flags &= ~ModelCapability.ToolCalling;
+        }
         if (remoteModelId.Contains("gpt-4o", StringComparison.OrdinalIgnoreCase) || remoteModelId.Contains("gpt-4.1", StringComparison.OrdinalIgnoreCase) || remoteModelId.Contains("vision", StringComparison.OrdinalIgnoreCase) || remoteModelId.Contains("vl", StringComparison.OrdinalIgnoreCase))
         {
             flags |= ModelCapability.Vision;

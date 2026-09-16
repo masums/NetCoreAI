@@ -38,7 +38,12 @@ internal static class HealthApi
             ready = lifecycle?.IsReady ?? false,
             loadedModels = lifecycle?.Loaded.Select(m => m.Descriptor.Id).ToArray() ?? [],
             metadataStore = storeOk ? "ok" : "unreachable",
-            dataDirectory = options?.DataDirectory,
+
+            // The data directory is deliberately not reported. This endpoint is anonymous — it has to be,
+            // because a load balancer probes it before anyone has signed in — and an absolute filesystem
+            // path tells an unauthenticated caller the account name, the deployment layout and where the
+            // database sits. The free space below is the health signal; the path it was measured on is not
+            // part of it. Signed-in administrators see the path on the storage page.
             freeDiskBytes = freeBytes,
             host = report.Entries.ToDictionary(e => e.Key, e => e.Value.Status.ToString()),
         }, Json));

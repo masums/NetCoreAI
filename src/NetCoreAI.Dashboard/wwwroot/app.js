@@ -94,6 +94,8 @@
       case 'key-close': { const k = $('#key-detail'); if (k) k.hidden = true; return; }
       case 'key-delete': return confirm(`Revoke "${name}"? Anything using it stops working at once.`) && guarded(async () => { await call('DELETE', `keys/${encodeURIComponent(id)}`); reload(); }, btn);
       case 'agent-edit': return guarded(() => openAgent(id), btn);
+      case 'agent-embed': return showEmbedSnippet(id, btn.dataset.name);
+      case 'agent-versions': return guarded(() => openVersions(id, btn.dataset.name), btn);
       case 'agent-try': return openAgentPlayground(id, name);
       case 'agent-runs': return guarded(() => openAgentRuns(id, name), btn);
       case 'agent-close': { const a = $('#agent-detail'); if (a) a.hidden = true; return; }
@@ -281,9 +283,29 @@
   watchDownloads();
 
   // Select-all for the reclaimable files list.
-  $('#orphan-all')?.addEventListener('change', (ev) => {
-    $$('.orphan').forEach((c) => { c.checked = ev.target.checked; });
-  });
+  const orphanAll = $('#orphan-all');
+  if (orphanAll) {
+    // The buttons say what pressing them would reclaim, and stay disabled until that is something.
+    // Without this the only feedback for "nothing selected" was a toast after pressing.
+    function refreshReclaim() {
+      const picked = $$('.orphan:checked');
+      const bytes = picked.reduce((sum, c) => sum + Number(c.dataset.size || 0), 0);
+      $$('[data-reclaim]').forEach((b) => {
+        b.disabled = picked.length === 0;
+        b.textContent = picked.length === 0
+          ? 'Reclaim selected'
+          : `Reclaim ${fmtBytes(bytes)} (${picked.length} file${picked.length === 1 ? '' : 's'})`;
+      });
+      orphanAll.checked = picked.length > 0 && picked.length === $$('.orphan').length;
+    }
+
+    orphanAll.addEventListener('change', (ev) => {
+      $$('.orphan').forEach((c) => { c.checked = ev.target.checked; });
+      refreshReclaim();
+    });
+    $$('.orphan').forEach((c) => c.addEventListener('change', refreshReclaim));
+    refreshReclaim();
+  }
 
   // ---------- tools ----------
   const toolDetail = $('#tool-detail');
@@ -544,6 +566,197 @@
     try { return JSON.parse($('#agent-options')?.textContent || '{}'); } catch { return {}; }
   })();
 
+  // The run browser. Filters, pages and exports what the Usage page summarises above it.
+  (() => {
+    const form = $('#usage-filter');
+    if (!form) return;
+
+    let offset = 0;
+
+    function query(extra) {
+      const d = formData(form);
+      const q = new URLSearchParams();
+      for (const [key, value] of Object.entries(d)) {
+        if (value !== '') q.set(key, value);
+      }
+      for (const [key, value] of Object.entries(extra || {})) q.set(key, value);
+      return q;
+    }
+
+    async function load() {
+      const list = $('#runs-list');
+      const { total, runs } = await call('GET', `usage/runs?${query({ limit: 25, offset })}`);
+      $('#runs-count').textContent = total === 0 ? 'none' : `${total} run(s)`;
+
+      if (!runs.length) {
+        list.innerHTML = '<p class="empty">Nothing matched that.</p>';
+        return;
+      }
+
+      list.innerHTML = `
+        <table><thead><tr><th>When</th><th>Agent</th><th>Model</th><th>Who</th><th>Tokens</th><th>Took</th><th></th></tr></thead>
+        <tbody>${runs.map((r) => `<tr>
+          <td class="small" title="${esc(r.startedAt)}">${esc(new Date(r.startedAt).toLocaleString())}</td>
+          <td class="small">${esc(r.agentId)}${r.success ? '' : ' <span class="tag warn">failed</span>'}</td>
+          <td class="small mono">${esc(r.modelId || '–')}</td>
+          <td class="small">${esc(r.userId || 'not signed in')}</td>
+          <td class="small">${r.inputTokens === null && r.outputTokens === null ? '<span class="muted">not recorded</span>' : ((r.inputTokens || 0) + (r.outputTokens || 0)).toLocaleString()}</td>
+          <td class="small">${(r.elapsedMs || 0).toLocaleString()} ms</td>
+          <td class="actions"><button class="btn small" data-action="run-open" data-id="${esc(r.id)}">Trace…</button></td>
+        </tr>`).join('')}</tbody></table>
+        <div class="toolbar">
+          <button class="btn small" data-action="runs-prev"${offset === 0 ? ' disabled' : ''}>Newer</button>
+          <button class="btn small" data-action="runs-next"${offset + 25 >= total ? ' disabled' : ''}>Older</button>
+        </div>`;
+    }
+
+    form.addEventListener('submit', (ev) => { ev.preventDefault(); offset = 0; guarded(load); });
+
+    $('#runs-list').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-action]');
+      if (!btn) return;
+      if (btn.dataset.action === 'runs-next') { offset += 25; guarded(load); }
+      if (btn.dataset.action === 'runs-prev') { offset = Math.max(0, offset - 25); guarded(load); }
+      if (btn.dataset.action === 'run-open') guarded(() => openRunTrace(btn.dataset.id));
+    });
+
+    form.querySelector('[data-action="usage-export"]').addEventListener('click', () => {
+      // Opened rather than fetched: the browser saves the file, and nothing has to hold a year of runs
+      // in memory to hand it over.
+      window.open(api(`usage/export?${query({})}`));
+    });
+  })();
+
+  // One run, in full. The same trace the agent playground shows, reachable from the browser.
+  async function openRunTrace(id) {
+    const run = await call('GET', `runs/${encodeURIComponent(id)}`);
+    const panel = $('#runs-list');
+    const existing = $('#run-trace');
+    if (existing) existing.remove();
+
+    const box = document.createElement('div');
+    box.id = 'run-trace';
+    box.className = 'card';
+    box.innerHTML = `
+      <div class="toolbar"><h3>${esc(run.agentId)} · ${esc(new Date(run.startedAt).toLocaleString())}</h3>
+        <button class="btn small" data-action="run-close">Close</button></div>
+      ${run.error ? `<p class="error">${esc(run.error)}</p>` : ''}
+      <h4>Asked</h4><pre class="small">${esc(run.input || '')}</pre>
+      <h4>Answered</h4><pre class="small">${esc(run.output || '')}</pre>
+      <h4>Steps</h4>
+      ${(run.steps || []).length
+        ? (run.steps || []).map((s) => `<div class="citation"><strong>${esc(s.kind)}</strong> <span class="mono small">${esc(s.name || '')}</span>
+            ${s.input ? `<br /><span class="muted small">in: ${esc(s.input)}</span>` : ''}
+            ${s.output ? `<br /><span class="muted small">out: ${esc(s.output)}</span>` : ''}</div>`).join('')
+        : '<p class="empty">No steps: the model answered without retrieval or tools.</p>'}`;
+
+    panel.append(box);
+    box.querySelector('[data-action="run-close"]').addEventListener('click', () => box.remove());
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // Publishing, and going back. The list is append-only, so a rollback appears as a new entry.
+  async function openVersions(id, name) {
+    const versions = await call('GET', `agents/${encodeURIComponent(id)}/versions`);
+    const agent = await call('GET', `agents/${encodeURIComponent(id)}`);
+
+    $('#agent-detail-title').textContent = `${name} — versions`;
+    $('#agent-detail-body').innerHTML = `
+      ${agent.publishedVersion
+        ? `<p class="muted">Runs use <strong>version ${agent.publishedVersion}</strong>. Edits are saved to the draft and go live when you publish.</p>`
+        : '<p class="muted">Never published, so edits go live as soon as they are saved. Publishing once changes that for good.</p>'}
+      <form id="publish-form" class="inline-form">
+        <input name="note" placeholder="what changed, and why" />
+        <button class="btn primary" type="submit">Publish the draft</button>
+      </form>
+      ${versions.length
+        ? `<table><thead><tr><th>Version</th><th>Published</th><th>By</th><th>Note</th><th></th></tr></thead><tbody>
+           ${versions.map((v) => `<tr>
+             <td>v${v.version}${v.version === agent.publishedVersion ? ' <span class="tag">serving</span>' : ''}</td>
+             <td class="small">${esc(new Date(v.publishedAt).toLocaleString())}</td>
+             <td class="small">${esc(v.publishedBy || '–')}</td>
+             <td class="small muted">${esc(v.note || '')}${v.rolledBackFrom ? ` <span class="tag">from v${v.rolledBackFrom}</span>` : ''}</td>
+             <td class="actions">${v.version === agent.publishedVersion ? '' :
+               `<button class="btn small" data-action="agent-rollback" data-id="${esc(id)}" data-version="${v.version}">Roll back to this</button>`}</td>
+           </tr>`).join('')}</tbody></table>`
+        : '<p class="empty">Nothing published yet.</p>'}`;
+
+    agentDetail.hidden = false;
+    agentDetail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    $('#publish-form').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const note = formData(ev.target).note;
+      guarded(async () => {
+        const version = await call('POST', `agents/${encodeURIComponent(id)}/publish`, { note: note || null });
+        toast(`Published v${version.version}.`);
+        await openVersions(id, name);
+      });
+    });
+
+    $('#agent-detail-body').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-action="agent-rollback"]');
+      if (!btn) return;
+      if (!confirm(`Serve version ${btn.dataset.version} again? It is published as a new version; nothing is deleted.`)) return;
+      guarded(async () => {
+        const version = await call('POST', `agents/${encodeURIComponent(id)}/rollback/${btn.dataset.version}`, {});
+        toast(`Rolled back; now serving v${version.version}.`);
+        await openVersions(id, name);
+      });
+    });
+  }
+
+  // The snippet that puts an agent on one of the host's own pages.
+  function showEmbedSnippet(id, name) {
+    const src = `${location.origin}${base}/_content/widget.js`;
+    const snippet = `<script src="${src}" data-agent="${id}" data-title="Ask ${name}"><\/script>`;
+
+    $('#agent-detail-title').textContent = `Embed ${name}`;
+    $('#agent-detail-body').innerHTML = `
+      <p class="muted">Paste this into a page of this application. The widget talks to this host as the
+      signed-in visitor, so it carries no key — and must not be given one, because a key in a page is a
+      public key.</p>
+      <pre class="small" id="embed-snippet">${esc(snippet)}</pre>
+      <p class="muted small">Restyle it with CSS variables on <code>.netcoreai-widget</code>:
+      <code>--ncai-accent</code>, <code>--ncai-bg</code>, <code>--ncai-radius</code>,
+      <code>--ncai-width</code>. Optional attributes: <code>data-title</code>,
+      <code>data-greeting</code>, <code>data-placement="left"</code>.</p>
+      <button class="btn" data-action="embed-copy">Copy</button>`;
+
+    agentDetail.hidden = false;
+    agentDetail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    $('[data-action="embed-copy"]').addEventListener('click', () => {
+      navigator.clipboard.writeText(snippet).then(() => toast('Copied.'), () => toast('Could not copy; select it by hand.'));
+    });
+  }
+
+  // The audit log's filter. The page renders the last seven days server-side; this re-queries.
+  $('#audit-filter')?.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const d = formData(ev.target);
+    const query = new URLSearchParams({ limit: '200' });
+    for (const [key, value] of Object.entries(d)) {
+      if (value) query.set(key, value);
+    }
+
+    guarded(async () => {
+      const entries = await call('GET', `audit?${query}`);
+      const body = $('#audit-table')?.querySelector('tbody');
+      if (!body) {
+        location.reload();
+        return;
+      }
+
+      body.innerHTML = entries.length
+        ? entries.map((e) => `<tr>
+            <td class="small" title="${esc(e.at)}">${esc(new Date(e.at).toLocaleString())}</td>
+            <td class="small"><strong>${esc(e.actorName || 'unknown')}</strong>${e.actorKind !== 'User' ? ` <span class="tag">${esc(e.actorKind)}</span>` : ''}${e.ipAddress ? `<br /><span class="muted mono small">${esc(e.ipAddress)}</span>` : ''}</td>
+            <td class="small">${esc(e.action)} <strong>${esc(e.entityName || e.entityId || '')}</strong><br /><span class="muted">${esc(e.entityType)}</span></td>
+            <td class="small muted">${esc(e.detail || '')}</td></tr>`).join('')
+        : '<tr><td colspan="4" class="empty">Nothing matched that.</td></tr>';
+    });
+  });
+
   $('#agent-form')?.addEventListener('submit', (ev) => {
     ev.preventDefault();
     const d = formData(ev.target);
@@ -554,6 +767,14 @@
     });
   });
 
+  // Four settings rather than a checkbox: "notice it" is the one a host should start with, and a
+  // toggle would offer only the two ends.
+  function piiSelect(name, value) {
+    const chosen = value || 'Ignore';
+    return `<select name="${name}">${[['Ignore', 'leave alone'], ['Report', 'note in the trace'], ['Mask', 'replace it']]
+      .map(([v, label]) => `<option value="${v}"${v === chosen ? ' selected' : ''}>${label}</option>`).join('')}</select>`;
+  }
+
   async function openAgent(id) {
     const agent = await call('GET', `agents/${encodeURIComponent(id)}`);
     const models = agentOptions.models || [];
@@ -562,6 +783,7 @@
     const chosenTools = new Set(agent.toolIds || []);
     const chosenBases = new Set((agent.knowledge || []).map((k) => k.knowledgeBaseId));
     const model = models.find((m) => m.id === agent.model);
+    const g = agent.guardrails || {};
 
     $('#agent-detail-title').textContent = agent.name;
     $('#agent-detail-body').innerHTML = `
@@ -598,6 +820,22 @@
         <label>Turns remembered<input name="windowTurns" type="number" min="1" max="100" value="${agent.memory?.windowTurns ?? 10}" /></label>
         <label class="wide">Access tags — who may run this agent (comma separated; blank means anyone)
           <input name="aclTags" value="${esc((agent.aclTags || []).join(', '))}" placeholder="role:support" /></label>
+
+        <h3 class="wide">Guardrails</h3>
+        <p class="muted wide small">All off unless you turn them on. Findings appear in the run trace whichever setting you pick, so you can watch a rule before you let it refuse anyone.</p>
+        <label>Personal data in questions${piiSelect('piiInput', g.pii?.inputAction)}</label>
+        <label>Personal data in answers${piiSelect('piiOutput', g.pii?.outputAction)}</label>
+        <label>Longest question (characters, 0 = no limit)<input name="maxInputCharacters" type="number" min="0" value="${g.content?.maxInputCharacters ?? 0}" /></label>
+        <label>Refuse prompt-injection attempts<select name="injection">
+          <option value="false"${g.injection?.enabled ? '' : ' selected'}>no</option>
+          <option value="true"${g.injection?.enabled ? ' selected' : ''}>yes</option></select></label>
+        <label class="wide">Refused phrases — a question containing one is never sent to the model (comma separated)
+          <input name="blockedPhrases" value="${esc((g.content?.blockedPhrases || []).join(', '))}" /></label>
+        <label>Tokens per answer<input name="maxTokensPerRun" type="number" min="0" value="${g.budget?.maxTokensPerRun ?? 0}" /></label>
+        <label>Tokens per conversation<input name="maxTokensPerSession" type="number" min="0" value="${g.budget?.maxTokensPerSession ?? 0}" /></label>
+        <label>Tokens per person per day<input name="maxTokensPerUserPerDay" type="number" min="0" value="${g.budget?.maxTokensPerUserPerDay ?? 0}" /></label>
+        <label>Spend per day<input name="maxCostPerDay" type="number" min="0" step="0.01" value="${g.budget?.maxCostPerDay ?? 0}" /></label>
+        <p class="muted wide small">Budgets are counted in this process. Behind a load balancer each instance keeps its own total, so they bound a runaway loop rather than a bill.</p>
         <button class="btn" type="submit">Save agent</button>
       </form>`;
 
@@ -629,6 +867,25 @@
         },
         memory: { ...original.memory, windowTurns: Number(d.windowTurns) },
         aclTags: d.aclTags ? d.aclTags.split(',').map((t) => t.trim()).filter(Boolean) : [],
+        guardrails: {
+          // Spread first, so per-role tool allow-lists — which this form does not show, because a map of
+          // role to tools is not a form field — survive a save from here.
+          ...(original.guardrails || {}),
+          content: {
+            ...(original.guardrails?.content || {}),
+            maxInputCharacters: Number(d.maxInputCharacters) || 0,
+            blockedPhrases: d.blockedPhrases ? d.blockedPhrases.split(',').map((t) => t.trim()).filter(Boolean) : [],
+          },
+          pii: { ...(original.guardrails?.pii || {}), inputAction: d.piiInput, outputAction: d.piiOutput },
+          injection: { ...(original.guardrails?.injection || {}), enabled: d.injection === 'true' },
+          budget: {
+            ...(original.guardrails?.budget || {}),
+            maxTokensPerRun: Number(d.maxTokensPerRun) || 0,
+            maxTokensPerSession: Number(d.maxTokensPerSession) || 0,
+            maxTokensPerUserPerDay: Number(d.maxTokensPerUserPerDay) || 0,
+            maxCostPerDay: Number(d.maxCostPerDay) || 0,
+          },
+        },
       });
       toast('Agent saved.');
       setTimeout(() => location.reload(), 700);
@@ -1047,14 +1304,17 @@
   const connForm = $('#connection-form');
   if (connForm) {
     const presets = JSON.parse($('#presets-json').textContent || '{}');
-    const providerSel = connForm.elements.providerId, presetSel = connForm.elements.preset, baseUrl = connForm.elements.baseUrl, secret = connForm.elements.secret;
-    function fillPresets() {
-      const list = presets[providerSel.value] || [];
-      presetSel.innerHTML = list.map((p) => `<option value="${esc(p.id)}">${esc(p.displayName)}</option>`).join('');
-      applyPreset();
+    const serviceSel = connForm.elements.service, baseUrl = connForm.elements.baseUrl, secret = connForm.elements.secret;
+
+    // Each option carries both halves: which backend package handles it, and which preset of that
+    // package it is. The grouping is what the reader sees; this is what gets stored.
+    function chosen() {
+      const [providerId, presetId] = (serviceSel.value || '').split('|');
+      return { providerId, presetId, preset: (presets[providerId] || []).find((x) => x.id === presetId) };
     }
+
     function applyPreset() {
-      const p = (presets[providerSel.value] || []).find((x) => x.id === presetSel.value);
+      const p = chosen().preset;
       if (!p) return;
       baseUrl.placeholder = p.defaultBaseUrl || 'https://…/v1';
       baseUrl.value = p.defaultBaseUrl || '';
@@ -1063,16 +1323,16 @@
       $$('[data-setting]', connForm).forEach((el) => { el.hidden = !(p.requiredSettings || []).includes(el.dataset.setting); });
       if (!connForm.elements.name.value) connForm.elements.name.value = p.displayName;
     }
-    providerSel.addEventListener('change', fillPresets);
-    presetSel.addEventListener('change', applyPreset);
-    fillPresets();
+    serviceSel.addEventListener('change', applyPreset);
+    applyPreset();
     connForm.addEventListener('submit', (ev) => {
       ev.preventDefault();
       const d = formData(connForm);
       const settings = {};
       for (const k of Object.keys(d)) if (k.startsWith('setting:') && d[k]) settings[k.slice(8)] = d[k];
       guarded(async () => {
-        const c = await call('POST', 'providers/connections', { name: d.name, providerId: d.providerId, preset: d.preset, baseUrl: d.baseUrl || null, secret: d.secret || null, settings });
+        const { providerId, presetId } = chosen();
+        const c = await call('POST', 'providers/connections', { name: d.name, providerId, preset: presetId, baseUrl: d.baseUrl || null, secret: d.secret || null, settings });
         toast(`Saved "${c.name}". Testing…`);
         const t = await call('POST', `providers/connections/${encodeURIComponent(c.id)}/test`);
         if (t.success) { await call('POST', `providers/connections/${encodeURIComponent(c.id)}/models`); }
@@ -1093,7 +1353,12 @@
       memoryBudgetBytes: d.memoryBudgetBytes || 0, storageQuotaWarningBytes: d.storageQuotaWarningBytes || 0,
       telemetryEnabled: !!d.telemetryEnabled, executionProvider: d.executionProvider, threads: d.threads || 0, defaultConcurrency: d.defaultConcurrency,
       offlineMode: !!d.offlineMode, huggingFaceEndpoint: d.huggingFaceEndpoint, proxyUrl: d.proxyUrl || '', bandwidthLimitBytesPerSecond: d.bandwidthLimitBytesPerSecond || 0,
-      remoteProvidersEnabled: !!d.remoteProvidersEnabled, disabledProviders: d.disabledProviders || [],
+      remoteProvidersEnabled: !!d.remoteProvidersEnabled,
+
+      // The boxes say which providers are on; the API stores which are off. Inverted here rather than
+      // shown inverted to the reader.
+      disabledProviders: ($('[data-all-providers]')?.dataset.allProviders || '').split(',')
+        .filter((id) => id && !(d.enabledProviders || []).includes(id)),
     };
     if (d.huggingFaceToken) body.huggingFaceToken = d.huggingFaceToken.trim().toLowerCase() === 'clear' ? '' : d.huggingFaceToken.trim();
     guarded(async () => { await call('PUT', 'settings', body); toast('Settings saved.'); settingsForm.elements.huggingFaceToken.value = ''; setTimeout(() => location.reload(), 800); }, settingsForm.querySelector('button[type=submit]'));
@@ -1175,6 +1440,9 @@
       const botDiv = addMessage('assistant', '', {});
       botDiv.querySelector('.bubble').classList.add('cursor');
       sendBtn.disabled = true; stopBtn.hidden = false; textEl.value = ''; delete textEl.dataset.replace;
+      const sentAttachments = attachments;
+      attachments = [];
+      renderAttachments();
       abort = new AbortController();
       let acc = '';
       try {
@@ -1191,6 +1459,10 @@
             knowledgeBaseIds: $$('.kb-pick:checked').map((c) => c.value),
             retrieval: retrievalSettings(),
             includeRetrievedPassages: $('#r-debug')?.checked === true,
+
+            // This turn's files. Cleared below, because an attachment belongs to the message it came
+            // with — silently resending it every turn would cost the context window and surprise people.
+            attachments: sentAttachments,
           }),
         });
         if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
@@ -1264,6 +1536,50 @@
       if (saved !== null) { if (el.type === 'checkbox') el.checked = saved === 'true'; else el.value = saved; }
       el.addEventListener('change', () => localStorage.setItem(key, el.type === 'checkbox' ? el.checked : el.value));
     }
+
+    // Files attached to the next message. Held here rather than uploaded with the message, so the text is
+    // extracted and shown before anything is sent — a 400-page PDF should not be discovered afterwards.
+    let attachments = [];
+
+    function renderAttachments() {
+      const list = $('#chat-attachments');
+      if (!list) return;
+      list.innerHTML = attachments.length
+        ? attachments.map((a, i) => `${esc(a.fileName)} (${a.originalCharacters.toLocaleString()} chars${a.truncated ? ', cut to fit' : ''}) `
+            + `<button class="btn small" data-remove="${i}">remove</button>`).join(' ')
+        : '';
+    }
+
+    $('#chat-attach')?.addEventListener('change', (ev) => {
+      const file = ev.target.files?.[0];
+      ev.target.value = '';
+      if (!file) return;
+
+      guarded(async () => {
+        const body = new FormData();
+        body.append('file', file, file.name);
+        const response = await fetch(api('chat/attachments'), { method: 'POST', body, credentials: 'same-origin' });
+        if (!response.ok) {
+          const problem = await response.json().catch(() => null);
+          toast(problem?.detail || `That file could not be read (HTTP ${response.status}).`);
+          return;
+        }
+
+        const attachment = await response.json();
+        attachments.push(attachment);
+        renderAttachments();
+        if (attachment.truncated) {
+          toast(`${attachment.fileName} was cut to fit the model's context.`);
+        }
+      });
+    });
+
+    $('#chat-attachments')?.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-remove]');
+      if (!btn) return;
+      attachments.splice(Number(btn.dataset.remove), 1);
+      renderAttachments();
+    });
 
     chatForm.addEventListener('submit', (ev) => { ev.preventDefault(); send(textEl.value, textEl.dataset.replace); });
     textEl.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); chatForm.requestSubmit(); } });

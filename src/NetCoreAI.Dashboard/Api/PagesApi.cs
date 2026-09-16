@@ -20,6 +20,8 @@ internal static class PagesApi
         group.MapGet("/tools", (HttpContext http, PageRenderer r) => Page<ToolsPage>(http, r, "tools")).ExcludeFromDescription();
         group.MapGet("/agents", (HttpContext http, PageRenderer r) => Page<AgentsPage>(http, r, "agents")).ExcludeFromDescription();
         group.MapGet("/keys", (HttpContext http, PageRenderer r) => Page<KeysPage>(http, r, "keys")).ExcludeFromDescription();
+        group.MapGet("/audit", (HttpContext http, PageRenderer r) => Page<AuditPage>(http, r, "audit")).ExcludeFromDescription();
+        group.MapGet("/usage", (HttpContext http, PageRenderer r) => Page<UsagePage>(http, r, "usage")).ExcludeFromDescription();
         group.MapGet("/hardware", (HttpContext http, PageRenderer r) => Page<HardwarePage>(http, r, "hardware")).ExcludeFromDescription();
         group.MapGet("/settings", (HttpContext http, PageRenderer r) => Page<SettingsPage>(http, r, "settings")).ExcludeFromDescription();
     }

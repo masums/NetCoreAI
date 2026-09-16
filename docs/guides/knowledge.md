@@ -131,3 +131,188 @@ On the Knowledge page the same thing is **Upload files** under a base's document
 | GET | `/api/kb/{id}/jobs` | Ingestion history for this base |
 | GET | `/api/jobs`, `/api/jobs/{id}` | Background jobs, with per-item failures |
 | POST | `/api/jobs/{id}/cancel`, `/retry` | Stop or re-run a job |
+
+## Hybrid search
+
+Retrieval runs a vector search and a keyword search and fuses the two. This is the default, and there is a
+`Retrieval.Mode` of `Vector` or `Keyword` if you want only one.
+
+The two fail differently, which is the whole argument for having both:
+
+- A **vector** search finds text that *means* the same thing, and misses `ERR-4021` — nothing else means
+  the same as an error code. Or a part number, or a customer id.
+- A **keyword** search finds exact tokens, and misses "the login screen hangs" when the document says
+  "authentication times out".
+
+A store that cannot search by keyword falls back to vectors alone. Hybrid is a default, and a default has
+to work wherever it lands.
+
+### How the two are combined
+
+Reciprocal rank fusion: each passage scores `1/(60 + rank)` in each list it appears in, and the scores add
+up.
+
+**On rank, not on score.** A cosine similarity and a BM25 score are different things measured differently;
+normalising one onto the other invents a relationship that is not there. Rank is the only thing the two
+lists agree about.
+
+The effect is that a passage both searches liked moderately beats one that only a single search loved —
+and a passage only one search found still reaches the answer, further down. Each leg fetches three times
+the requested depth, because a passage ranked eighth by one and second by the other is exactly the one
+fusion exists to surface.
+
+`MinScore` applies to the vector leg, before fusion. A fused score is a rank sum rather than a similarity,
+and a threshold tuned against cosine distances means nothing against it.
+
+### The keyword index
+
+In SQLite it is FTS5 over the chunk text that is already stored — no second copy — kept in step by database
+triggers rather than by code that has to remember to update it. An index maintained by whichever path
+remembers is wrong after the first path that forgets.
+
+It applies the same access tags as the vector search. An index that ignored them would be a way to read a
+restricted passage by guessing a word in it.
+
+Queries are tokenised the way the index is: `AB-1234/X` becomes the phrase `"AB 1234 X"` rather than one
+glued token, because that is how the document was stored. Every term is quoted — partly so punctuation
+cannot be read as an FTS5 operator, and partly because a query is text somebody typed and must never become
+part of the expression evaluating it.
+
+## Re-ranking
+
+Hybrid search gets the right passages into the candidate set. A re-ranker decides which of them goes first
+— and the order is what decides the answer, because a model given ten passages leans on the first two. A
+correct passage ranked seventh is, in practice, a passage that was not retrieved.
+
+```csharp
+builder.Services.AddNetCoreAI()
+    .AddOnnxBackend()
+    .AddOnnxReranker("./models/bge-reranker-base");
+```
+
+Nothing else changes. Every knowledge base re-ranks by default once a re-ranker is registered, and none
+does while none is — a host that adds one gets the benefit without finding a setting first, and a host that
+does not pays nothing.
+
+**Why a second pass at all.** A vector search compares a question and a passage that were embedded
+separately and never saw each other. A cross-encoder reads the two *together* and answers one question:
+does this passage answer that one. It is far better at it, and far too slow to run over a corpus — which is
+why it goes second, over a few dozen candidates something cheap has already found.
+
+Retrieval fetches wider than the answer when a re-ranker will read the results — `RerankCandidates`,
+30 by default. The whole value is in the passages the first stage ranked eighth, so the pool has to be
+bigger than the answer; too big and every question pays for passages that were never plausible.
+
+A re-ranker that fails costs quality, not the answer. The candidates were already a reasonable result, and
+the retrieval order is used with a warning logged. Turning a quality feature into an availability one would
+be the wrong trade.
+
+Set `Retrieval.Rerank = false` on a knowledge base that should skip it.
+
+**Not yet tested end to end.** The seam is covered — the wider net, the re-ordering, the cut, the failure
+path — but whether `bge-reranker-base` itself ranks well is checked by hand rather than by a test, because
+that needs a model download. Treat the ONNX implementation as newer than the rest of this page.
+
+## Measuring it
+
+Everything above claims to make retrieval better. This is how you check.
+
+```
+PUT  /api/evaluations/support-questions
+POST /api/evaluations/support-questions/run   { "label": "vectors only", "retrieval": { "mode": "Vector" } }
+POST /api/evaluations/support-questions/run   { "label": "hybrid + reranker" }
+GET  /api/evaluations/support-questions/runs
+```
+
+A set is questions plus the documents each one ought to retrieve. Running it reports:
+
+- **Hit rate** — the fraction of questions where an expected document came back at all.
+- **Mean reciprocal rank** — the average of 1/(position of the first correct document).
+
+Both, because they move independently and only one is about answer quality. Retrieval that finds the right
+document every time, in position eight every time, has a **perfect hit rate and produces bad answers** — a
+model given ten passages leans on the first two. MRR is the number re-ranking moves.
+
+Questions that found nothing count as **zero** in the average rather than being left out. Otherwise a
+configuration that answers one question perfectly and fails the rest scores a perfect MRR.
+
+### The point is comparison
+
+Run the same set twice with different settings and read the difference. That is evidence. A single hit
+rate is a number whose meaning depends entirely on how the questions were written — and **a set written by
+reading the documents and inventing questions about them measures whether retrieval can find a passage the
+author was looking at.** That is a far easier task than the one real users set, and such a set will flatter
+every configuration equally. Questions taken from what people actually asked are worth more than a hundred
+written to order.
+
+### Faithfulness
+
+With `generateAnswers` and a `judgeModel`, each answer is scored 0–1 on how much of it the passages
+actually support, with the judge's one-sentence reason kept beside it.
+
+This is a model grading a model. It is useful for noticing that something got *worse* between two runs. It
+is not ground truth, it is not worth arguing with a person about, and the run records which model did the
+judging for exactly that reason. A judge that replies with prose instead of a score leaves a **gap** in the
+average rather than a zero — scoring a chatty model as "completely unsupported" would make it look like a
+retrieval problem.
+
+Evaluation runs ignore access tags: they measure what the base can find, not what one person may see.
+
+## Moving to a different vector store
+
+```
+POST /api/vectors/migrate?from=sqlite&to=postgres            # dry run: says what it would do
+POST /api/vectors/migrate?from=sqlite&to=postgres&dryRun=false
+```
+
+It **copies the vectors** rather than re-embedding the documents. Re-embedding would cost an embedding call
+per chunk and — worse — produce different numbers if the model has changed since, turning a change of
+database into a silent change of what the base retrieves.
+
+Three things it will not do:
+
+- **Merge.** A collection the target already has is skipped, and named in the result. Two stores holding
+  overlapping chunk ids from different indexing runs produce a collection that is neither, and nobody would
+  know which. Pass `replace=true` to drop the target's copy first.
+- **Delete from the source.** A migration that emptied the old store as it went would leave you with no way
+  back from a half-finished one. Switch stores in configuration once the copy is verified, then remove the
+  old file by hand.
+- **Guess.** A store that cannot list its chunks says so rather than reporting success having copied
+  nothing. For those, re-index the documents into the new store instead.
+
+It runs 500 chunks at a time and streams: a modest knowledge base is hundreds of thousands of chunks, each
+carrying a vector of a thousand floats.
+
+Access tags, metadata and document ids travel with each chunk. A migration that dropped the tags would
+quietly publish restricted passages to everyone in the new store.
+
+## Attaching a file to one message
+
+The chat playground has an **Attach…** button; the API is `POST /api/chat/attachments`, which returns the
+extracted text for you to send with the next message.
+
+**This is not a knowledge base.** An attachment belongs to the turn it came with: read once, put in front
+of the model, forgotten. A file somebody wants answers from repeatedly should be *ingested* instead, where
+it gets chunked, embedded, cited and access-controlled — none of which happens here.
+
+Which sets the limit. The whole text goes into the prompt, so a long document does not fit and cannot be
+made to. Files are capped at 32,000 characters by default — roughly 8,000 tokens, chosen to leave room for
+the conversation in a 16k context rather than to fill a large one.
+
+**A cut file says so, inside the text:**
+
+> `[This file was cut off here: it is 412,880 characters and only the first 32,000 were included.]`
+
+Because a model handed a document that stops mid-sentence will answer about the part it has as though that
+were the whole thing, and say so with confidence. The dashboard also says it in the message line.
+
+Attached files are introduced to the model as **material to read, not as instructions**. A document the
+model reads as instructions is a way to instruct the model by uploading a file — the same reasoning the
+[injection guardrail](guardrails.md) applies to a caller's message, applied to a caller's file.
+
+Formats are whatever extractors are registered: text, Markdown, CSV, JSON and logs always; PDF, DOCX, PPTX,
+XLSX and HTML with the `NetCoreAI.Documents` package. `GET /api/chat/attachments/supported` returns the
+list, so a file picker can filter on what this host can actually read.
+
+The attachment text is stored with the turn in the conversation history. A transcript that reads
+differently when reopened than it did when it happened is a transcript of nothing.

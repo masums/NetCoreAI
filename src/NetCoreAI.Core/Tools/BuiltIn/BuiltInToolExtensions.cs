@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using NetCoreAI.Hub;
 using NetCoreAI.Tools;
 using NetCoreAI.Tools.BuiltIn;
 
@@ -64,7 +65,11 @@ public static class BuiltInToolExtensions
                 // A redirect is a second URL, and the allow-list was only asked about the first. Following
                 // one would let an approved host hand a model an address nobody approved.
                 AllowAutoRedirect = false,
-            });
+            })
+
+            // Two allow-lists, and a fetch has to satisfy both: the tool's, which says where a model may
+            // look, and the host's, which says where this process may talk at all.
+            .EnforceOfflineMode();
 
             builder.AddAITool<FetchTool>();
         }

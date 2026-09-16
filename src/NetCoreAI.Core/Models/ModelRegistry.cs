@@ -12,12 +12,14 @@ internal sealed class ModelRegistry : IModelRegistry, IHostedService
     private readonly IModelLifecycleManager _lifecycle;
     private readonly IProviderRegistry _providers;
     private readonly IOptionsMonitor<NetCoreAIOptions> _options;
+    private readonly NetCoreAI.Security.IAuditLog _audit;
     private readonly ILogger<ModelRegistry> _logger;
     private readonly ConcurrentDictionary<string, (ModelStatus Status, string? Message)> _status = new(StringComparer.OrdinalIgnoreCase);
 
-    public ModelRegistry(IMetadataStore store, IModelLifecycleManager lifecycle, IProviderRegistry providers, IOptionsMonitor<NetCoreAIOptions> options, ILogger<ModelRegistry> logger)
+    public ModelRegistry(IMetadataStore store, IModelLifecycleManager lifecycle, IProviderRegistry providers, IOptionsMonitor<NetCoreAIOptions> options, NetCoreAI.Security.IAuditLog audit, ILogger<ModelRegistry> logger)
     {
         _store = store;
+        _audit = audit;
         _lifecycle = lifecycle;
         _providers = providers;
         _options = options;
@@ -30,6 +32,46 @@ internal sealed class ModelRegistry : IModelRegistry, IHostedService
     }
 
     public event EventHandler<ModelEntry>? Changed;
+
+    /// <summary>
+    /// Drops a loaded model whose settings now point somewhere else.
+    /// </summary>
+    /// <remarks>
+    /// The lifecycle manager caches a loaded model by its id. Without this, repointing a model at a
+    /// different connection leaves every call going to the old one until somebody restarts the host — and
+    /// the dashboard shows the new setting the whole time, so it reads as a provider fault rather than a
+    /// stale client.
+    /// </remarks>
+    private async Task UnloadIfRepointedAsync(ModelDescriptor descriptor, CancellationToken cancellationToken)
+    {
+        if (!_lifecycle.TryGetLoaded(descriptor.Id, out _))
+        {
+            return;
+        }
+
+        var previous = await _store.Models.GetAsync(descriptor.Id, cancellationToken).ConfigureAwait(false);
+        if (previous is null || !LoadedFromChanged(previous, descriptor))
+        {
+            return;
+        }
+
+        _logger.LogInformation("{ModelId} now points somewhere else; unloading the copy loaded from the old settings.", descriptor.Id);
+        await _lifecycle.UnloadAsync(descriptor.Id, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Whether the two descriptors would load differently.
+    /// </summary>
+    /// <remarks>
+    /// Only what the loaded client is built from. A rename, a new tag or a changed default temperature all
+    /// leave the same client serving the same model, and unloading for those would throw away a warm local
+    /// model because somebody fixed a typo.
+    /// </remarks>
+    private static bool LoadedFromChanged(ModelDescriptor before, ModelDescriptor after) =>
+        !string.Equals(before.ProviderId, after.ProviderId, StringComparison.Ordinal)
+        || !string.Equals(before.ConnectionId, after.ConnectionId, StringComparison.Ordinal)
+        || !string.Equals(before.RemoteModelId, after.RemoteModelId, StringComparison.Ordinal)
+        || !string.Equals(before.Path, after.Path, StringComparison.Ordinal);
 
     public async Task<IReadOnlyList<ModelEntry>> ListAsync(CancellationToken cancellationToken = default)
     {
@@ -59,8 +101,18 @@ internal sealed class ModelRegistry : IModelRegistry, IHostedService
             }
         }
 
+        var existed = await _store.Models.GetAsync(descriptor.Id, cancellationToken).ConfigureAwait(false) is not null;
+        await UnloadIfRepointedAsync(descriptor, cancellationToken).ConfigureAwait(false);
         await _store.Models.UpsertAsync(descriptor, cancellationToken).ConfigureAwait(false);
         _status[descriptor.Id] = (ModelStatus.Available, null);
+
+        await _audit.WriteAsync(
+            existed ? NetCoreAI.Security.AuditAction.Updated : NetCoreAI.Security.AuditAction.Created,
+            NetCoreAI.Security.AuditEntity.Model,
+            descriptor.Id,
+            descriptor.Name,
+            descriptor.IsRemote ? $"{descriptor.ProviderId} via {descriptor.ConnectionId}, {descriptor.RemoteModelId}" : descriptor.Format.ToString(),
+            cancellationToken).ConfigureAwait(false);
         Changed?.Invoke(this, ToEntry(descriptor));
 
         // First chat model becomes "default", first embedding model becomes "embed", so code works without configuration.
@@ -82,6 +134,7 @@ internal sealed class ModelRegistry : IModelRegistry, IHostedService
     {
         ArgumentNullException.ThrowIfNull(model);
         _ = await _store.Models.GetAsync(model.Id, cancellationToken).ConfigureAwait(false) ?? throw new ModelNotFoundException(model.Id);
+        await UnloadIfRepointedAsync(model, cancellationToken).ConfigureAwait(false);
         await _store.Models.UpsertAsync(model, cancellationToken).ConfigureAwait(false);
         Changed?.Invoke(this, ToEntry(model));
         return model;
@@ -92,6 +145,13 @@ internal sealed class ModelRegistry : IModelRegistry, IHostedService
         var model = await _store.Models.GetAsync(id, cancellationToken).ConfigureAwait(false) ?? throw new ModelNotFoundException(id);
         await _lifecycle.UnloadAsync(id, cancellationToken).ConfigureAwait(false);
         await _store.Models.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
+        await _audit.WriteAsync(
+            NetCoreAI.Security.AuditAction.Deleted,
+            NetCoreAI.Security.AuditEntity.Model,
+            id,
+            model.Name,
+            deleteFiles ? "files deleted too" : null,
+            cancellationToken).ConfigureAwait(false);
         foreach (var alias in (await _store.Aliases.ListAsync(cancellationToken).ConfigureAwait(false)).Where(a => a.ModelId == id))
         {
             await _store.Aliases.DeleteAsync(alias.Alias, cancellationToken).ConfigureAwait(false);

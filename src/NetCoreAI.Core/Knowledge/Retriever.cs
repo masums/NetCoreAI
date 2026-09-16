@@ -39,7 +39,8 @@ internal sealed class Retriever(
     IMetadataStore store,
     IChatClientFactory clients,
     IEnumerable<IVectorStore> vectorStores,
-    ILogger<Retriever> logger) : IRetriever
+    ILogger<Retriever> logger,
+    IReranker? reranker = null) : IRetriever
 {
     private readonly List<IVectorStore> _vectorStores = [.. vectorStores];
 
@@ -114,7 +115,6 @@ internal sealed class Retriever(
             return [];
         }
 
-        var embedding = await EmbedAsync(knowledgeBase, query, cancellationToken).ConfigureAwait(false);
         var filter = new VectorFilter
         {
             MetadataEquals = settings.MetadataFilter,
@@ -123,7 +123,45 @@ internal sealed class Retriever(
             MinScore = settings.MinScore,
         };
 
-        var hits = await vectorStore.SearchAsync(knowledgeBase.Collection, embedding, Math.Max(1, settings.TopK), filter, cancellationToken).ConfigureAwait(false);
+        var topK = Math.Max(1, settings.TopK);
+
+        // Retrieve wider than the answer when something is going to re-read the candidates, because the
+        // passages worth promoting are the ones the first stage ranked eighth.
+        var reranking = settings.Rerank && reranker is not null;
+        var fetch = reranking ? Math.Max(topK, Math.Clamp(settings.RerankCandidates, topK, 200)) : topK;
+
+        // Keywords only when the store can do them. A store that cannot falls back to vectors rather than
+        // failing: hybrid is the default, and a default must work everywhere it lands.
+        var keywords = vectorStore as IKeywordSearchable;
+        var mode = settings.Mode;
+        if (mode != RetrievalMode.Vector && keywords is null)
+        {
+            logger.LogDebug("{Store} cannot search by keyword; using vectors alone.", vectorStore.Id);
+            mode = RetrievalMode.Vector;
+        }
+
+        IReadOnlyList<VectorSearchResult> hits;
+        if (mode == RetrievalMode.Keyword)
+        {
+            hits = await keywords!.SearchKeywordAsync(knowledgeBase.Collection, query, fetch, filter, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            var embedding = await EmbedAsync(knowledgeBase, query, cancellationToken).ConfigureAwait(false);
+
+            // Each leg fetches more than topK, because the whole point of fusing is that a passage ranked
+            // eighth by one and second by the other should beat one ranked fourth by both.
+            var depth = mode == RetrievalMode.Hybrid ? Math.Max(fetch * 3, 20) : fetch;
+            var vectorHits = await vectorStore.SearchAsync(knowledgeBase.Collection, embedding, depth, filter, cancellationToken).ConfigureAwait(false);
+
+            hits = mode == RetrievalMode.Vector
+                ? vectorHits
+                : Fuse(
+                    vectorHits,
+                    await keywords!.SearchKeywordAsync(knowledgeBase.Collection, query, depth, filter, cancellationToken).ConfigureAwait(false),
+                    fetch);
+        }
+
         var results = new List<RetrievedChunk>(hits.Count);
 
         foreach (var hit in hits)
@@ -134,8 +172,88 @@ internal sealed class Retriever(
                 ToCitation(knowledgeBase, hit)));
         }
 
-        logger.LogDebug("Retrieved {Count} chunk(s) from {KnowledgeBase} for a {Length}-character query.", results.Count, knowledgeBase.Name, query.Length);
+        if (reranking && results.Count > 1)
+        {
+            try
+            {
+                results = [.. await reranker!.RerankAsync(query, results, topK, cancellationToken).ConfigureAwait(false)];
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // The candidates are already a reasonable answer. A reranker that cannot run should cost
+                // the host some quality, not the caller their answer.
+                logger.LogWarning(ex, "The reranker ({Reranker}) failed; using the retrieval order.", reranker!.Id);
+                results = [.. results.Take(topK)];
+            }
+        }
+        else if (results.Count > topK)
+        {
+            results = [.. results.Take(topK)];
+        }
+
+        logger.LogDebug(
+            "Retrieved {Count} chunk(s) from {KnowledgeBase} for a {Length}-character query using {Mode} search{Reranked}.",
+            results.Count, knowledgeBase.Name, query.Length, mode, reranking ? " and a reranker" : "");
+
         return results;
+    }
+
+    /// <summary>
+    /// Reciprocal rank fusion of two result lists.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Each passage scores <c>1/(k + rank)</c> in each list it appears in, and the scores add up. Ranks
+    /// rather than scores, because a cosine similarity and a BM25 score are different things measured
+    /// differently, and normalising one onto the other is a way of inventing a relationship that is not
+    /// there. Rank is the only thing the two lists agree about.
+    /// </para>
+    /// <para>
+    /// The constant damps the top of each list, so one confident source cannot alone decide the answer —
+    /// a passage both searches liked moderately beats one that only a single search loved. 60 is the value
+    /// from the paper the technique comes from, and it is not sensitive enough to be worth exposing.
+    /// </para>
+    /// </remarks>
+    /// <summary>The fusion on its own, so the ranking rule can be tested without a database.</summary>
+    internal static List<VectorSearchResult> FuseForTests(
+        IReadOnlyList<VectorSearchResult> vectors,
+        IReadOnlyList<VectorSearchResult> keywords,
+        int topK) => Fuse(vectors, keywords, topK);
+
+    private static List<VectorSearchResult> Fuse(
+        IReadOnlyList<VectorSearchResult> vectors,
+        IReadOnlyList<VectorSearchResult> keywords,
+        int topK)
+    {
+        const float K = 60f;
+
+        var scores = new Dictionary<string, float>(StringComparer.Ordinal);
+        var records = new Dictionary<string, VectorSearchResult>(StringComparer.Ordinal);
+
+        void Add(IReadOnlyList<VectorSearchResult> list)
+        {
+            for (var rank = 0; rank < list.Count; rank++)
+            {
+                var hit = list[rank];
+                scores[hit.Record.Id] = scores.GetValueOrDefault(hit.Record.Id) + (1f / (K + rank + 1));
+
+                // The vector leg wins on identity because its record carries the embedding; the keyword
+                // leg leaves that empty, and a caller asking for a chunk back should get the whole one.
+                if (!records.ContainsKey(hit.Record.Id) || hit.Record.Embedding.Length > 0)
+                {
+                    records[hit.Record.Id] = hit;
+                }
+            }
+        }
+
+        Add(vectors);
+        Add(keywords);
+
+        return [.. scores
+            .OrderByDescending(s => s.Value)
+            .ThenBy(s => s.Key, StringComparer.Ordinal)
+            .Take(topK)
+            .Select(s => records[s.Key] with { Score = s.Value })];
     }
 
     /// <summary>

@@ -47,6 +47,23 @@ internal static class ToolsApi
                 ? Results.BadRequest(new { error = "The id in the URL and the body must match." })
                 : Results.Ok(await service.SaveAsync(tool, AllowInProcessBy(tool, http), ct))).WithName("NetCoreAI.Tools.Update");
 
+        // Groups: a capability an agent can be given instead of a list of ids.
+        tools.MapGet("/groups", async (IToolService service, CancellationToken ct) =>
+            Results.Ok(await service.ListGroupsAsync(ct))).WithName("NetCoreAI.Tools.Groups");
+
+        tools.MapPut("/groups/{id}", async (string id, ToolGroup group, IToolService service, CancellationToken ct) =>
+            Results.Ok(await service.SaveGroupAsync(group with { Id = id }, ct))).WithName("NetCoreAI.Tools.SaveGroup");
+
+        tools.MapDelete("/groups/{id}", async (string id, IToolService service, CancellationToken ct) =>
+        {
+            await service.DeleteGroupAsync(id, ct);
+            return Results.NoContent();
+        }).WithName("NetCoreAI.Tools.DeleteGroup");
+
+        // Asked before changing a tool, because the answer is who else it changes.
+        tools.MapGet("/{id}/used-by", async (string id, IToolService service, CancellationToken ct) =>
+            Results.Ok(await service.UsedByAsync(id, ct))).WithName("NetCoreAI.Tools.UsedBy");
+
         tools.MapDelete("/{id}", async (string id, IToolService service, CancellationToken ct) =>
         {
             await service.DeleteAsync(id, ct);

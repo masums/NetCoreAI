@@ -1,0 +1,121 @@
+@using NetCoreAI.Security
+@inject IAuditLog Audit
+
+<header class="page-header">
+    <h1>Audit log</h1>
+    <p class="muted">Who created, changed or deleted something, and when. Append-only: nothing here can be edited, and the only way a row leaves is the retention setting.</p>
+</header>
+
+<section class="card">
+    <div class="toolbar">
+        <h2>Recent activity</h2>
+        <span class="muted">@_entries.Count entr@(_entries.Count == 1 ? "y" : "ies")</span>
+    </div>
+
+    <form id="audit-filter" class="inline-form">
+        <select name="entityType">
+            <option value="">everything…</option>
+            @foreach (var (value, label) in Types)
+            {
+                <option value="@value">@label</option>
+            }
+        </select>
+        <select name="action">
+            <option value="">any action…</option>
+            <option value="created">created</option>
+            <option value="updated">changed</option>
+            <option value="deleted">deleted</option>
+            <option value="refused">refused</option>
+            <option value="ran">ran</option>
+        </select>
+        <select name="days">
+            <option value="7">last 7 days</option>
+            <option value="30">last 30 days</option>
+            <option value="">all of it</option>
+        </select>
+        <button class="btn" type="submit">Show</button>
+    </form>
+
+    @if (_entries.Count == 0)
+    {
+        <p class="empty">Nothing recorded yet. Entries appear as models, connections, tools, agents, knowledge bases and API keys are created, changed or deleted.</p>
+    }
+    else
+    {
+        <table id="audit-table">
+            <thead><tr><th>When</th><th>Who</th><th>What</th><th>Detail</th></tr></thead>
+            <tbody>
+                @foreach (var entry in _entries)
+                {
+                    <tr>
+                        <td class="small" title="@entry.At.ToString("u", System.Globalization.CultureInfo.InvariantCulture)">@Fmt.Ago(entry.At)</td>
+                        <td class="small">
+                            <strong>@(entry.ActorName ?? "unknown")</strong>
+                            @if (entry.ActorKind != ActorKind.User)
+                            {
+                                <span class="tag">@Who(entry.ActorKind)</span>
+                            }
+                            @if (entry.IpAddress is { Length: > 0 } ip)
+                            {
+                                <br /><span class="muted mono small">@ip</span>
+                            }
+                        </td>
+                        <td class="small">
+                            @Verb(entry.Action) <strong>@(entry.EntityName ?? entry.EntityId)</strong>
+                            <br /><span class="muted">@entry.EntityType</span>
+                            @if (entry.EntityId is { Length: > 0 } id && id != entry.EntityName)
+                            {
+                                <span class="muted mono small">@id</span>
+                            }
+                        </td>
+                        <td class="small muted">@entry.Detail</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+@code {
+    [Parameter] public DashboardContext Ctx { get; set; } = default!;
+
+    private IReadOnlyList<AuditEntry> _entries = [];
+
+    private static readonly (string Value, string Label)[] Types =
+    [
+        (AuditEntity.Model, "models"),
+        (AuditEntity.Connection, "connections"),
+        (AuditEntity.Tool, "tools"),
+        (AuditEntity.Agent, "agents"),
+        (AuditEntity.KnowledgeBase, "knowledge bases"),
+        (AuditEntity.ApiKey, "API keys"),
+    ];
+
+    /// <summary>Past tense, because every entry is something that already happened.</summary>
+    private static string Verb(string action) => action switch
+    {
+        AuditAction.Created => "created",
+        AuditAction.Updated => "changed",
+        AuditAction.Deleted => "deleted",
+        AuditAction.Ran => "ran",
+        AuditAction.Refused => "was refused by",
+        AuditAction.Tested => "tested",
+        AuditAction.Uploaded => "uploaded to",
+        AuditAction.Downloaded => "downloaded",
+        _ => action,
+    };
+
+    /// <summary>
+    /// An API key is an application, not a person, and reading the log without that distinction leads to
+    /// the wrong next question.
+    /// </summary>
+    private static string Who(ActorKind kind) => kind switch
+    {
+        ActorKind.ApiKey => "API key",
+        ActorKind.System => "NetCoreAI",
+        _ => "not signed in",
+    };
+
+    protected override async Task OnInitializedAsync() =>
+        _entries = await Audit.ListAsync(new AuditFilter { Since = DateTimeOffset.UtcNow.AddDays(-7), Limit = 200 });
+}

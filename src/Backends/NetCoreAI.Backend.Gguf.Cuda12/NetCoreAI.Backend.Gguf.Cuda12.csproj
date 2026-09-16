@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>NVIDIA CUDA 12 native backend for NetCoreAI.Backend.Gguf. Add this package alongside NetCoreAI.Backend.Gguf and set the execution provider to Cuda.</Description>
+    <Description>NVIDIA CUDA 12 native backend for NetCoreAI.Backend.Gguf. NOTE: referencing this package is not enough on its own — NuGet does not pass build targets through an intermediate package, and that is how the native binaries are delivered, so your own project must reference LLamaSharp.Backend.Cuda12 directly.</Description>
     <!-- Native binaries only: this package carries no code of its own. -->
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <NoWarn>$(NoWarn);NU5128</NoWarn>

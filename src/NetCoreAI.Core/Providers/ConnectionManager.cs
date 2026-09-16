@@ -30,6 +30,7 @@ internal sealed class ConnectionManager(
     IModelRegistry registry,
     ISecretProtector protector,
     ISecretResolver secrets,
+    NetCoreAI.Security.IAuditLog audit,
     ILogger<ConnectionManager> logger) : IConnectionManager
 {
     public Task<IReadOnlyList<ProviderConnection>> ListAsync(CancellationToken cancellationToken = default) => store.Connections.ListAsync(cancellationToken);
@@ -63,6 +64,20 @@ internal sealed class ConnectionManager(
 
         await store.Connections.UpsertAsync(saved, cancellationToken).ConfigureAwait(false);
         logger.LogInformation("Saved provider connection {ConnectionId} ({ProviderId}/{Preset})", saved.Id, saved.ProviderId, saved.Preset);
+
+        await audit.WriteAsync(
+            existing is null ? NetCoreAI.Security.AuditAction.Created : NetCoreAI.Security.AuditAction.Updated,
+            NetCoreAI.Security.AuditEntity.Connection,
+            saved.Id,
+            saved.Name,
+
+            // Where it points and whether the secret was replaced. Not the secret, and not a diff of one:
+            // a diff of a secret is a copy of it.
+            plainSecret is { Length: > 0 }
+                ? $"{saved.ProviderId} at {saved.BaseUrl}, secret replaced"
+                : $"{saved.ProviderId} at {saved.BaseUrl}",
+            cancellationToken).ConfigureAwait(false);
+
         return saved;
     }
 
@@ -73,7 +88,9 @@ internal sealed class ConnectionManager(
             await registry.RemoveAsync(model.Descriptor.Id, deleteFiles: false, cancellationToken).ConfigureAwait(false);
         }
 
+        var connection = await store.Connections.GetAsync(id, cancellationToken).ConfigureAwait(false);
         await store.Connections.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
+        await audit.WriteAsync(NetCoreAI.Security.AuditAction.Deleted, NetCoreAI.Security.AuditEntity.Connection, id, connection?.Name, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<ConnectionTestResult> TestAsync(string id, CancellationToken cancellationToken = default)

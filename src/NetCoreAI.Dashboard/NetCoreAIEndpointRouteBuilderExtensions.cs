@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using NetCoreAI.Dashboard.Api;
 using NetCoreAI.Dashboard.Rendering;
 using NetCoreAI.Hub;
+using NetCoreAI.Tenancy;
 
 namespace NetCoreAI;
 
@@ -37,6 +38,10 @@ public static class NetCoreAIEndpointRouteBuilderExtensions
 
         ApplyAuthorization(group, options.Dashboard);
 
+        // After authorization, so a tenant read from a claim has a claim to read. Everything under the
+        // group runs as the caller's tenant, or does not run.
+        group.UseTenancy();
+
         // Health is intentionally outside the authorization policy so load balancers can probe it.
         endpoints.MapHealthChecks(path + "/health", new HealthCheckOptions { ResponseWriter = HealthApi.WriteAsync }).AllowAnonymous();
 
@@ -50,6 +55,10 @@ public static class NetCoreAIEndpointRouteBuilderExtensions
             http.Response.Headers.CacheControl = "public,max-age=86400";
             return Results.Stream(stream!, contentType);
         }).AllowAnonymous().ExcludeFromDescription();
+
+        // The OpenAI wire format, under the same group so it inherits the same authorization and the same
+        // tenancy. Outside /api, because it is somebody else's shape rather than ours.
+        OpenAiCompatApi.Map(group);
 
         PagesApi.Map(group);
         OpenApiDocument.Map(group, path);
@@ -82,6 +91,12 @@ public static class NetCoreAIEndpointRouteBuilderExtensions
         ToolsApi.Map(api);
         AgentsApi.Map(api);
         ApiKeysApi.Map(api);
+        AuditApi.Map(api);
+        TenantsApi.Map(api);
+        UsageApi.Map(api);
+        AlertsApi.Map(api);
+        BackupApi.Map(api);
+        EvaluationApi.Map(api);
         ProvidersApi.Map(api);
         ChatApi.Map(api);
         SettingsApi.Map(api);
@@ -111,7 +126,15 @@ public static class NetCoreAIEndpointRouteBuilderExtensions
         }
 
         // Default deny with an explanation instead of a bare 403 or a login redirect loop.
+        //
+        // An endpoint that asked for AllowAnonymous still gets it. This is a filter rather than an
+        // authorization policy, and a filter does not know about AllowAnonymous unless it is told — so
+        // without this, marking something anonymous under this branch did nothing, which is worse than
+        // not offering the option. The widget script is the case that found it: it goes on the host's own
+        // pages, and a script only the dashboard can fetch can only appear on the dashboard.
         group.AddEndpointFilter((ctx, next) =>
-            ValueTask.FromResult<object?>(Results.Content(ForbiddenPage.Html, "text/html; charset=utf-8", statusCode: StatusCodes.Status403Forbidden)));
+            ctx.HttpContext.GetEndpoint()?.Metadata.GetMetadata<IAllowAnonymous>() is not null
+                ? next(ctx)
+                : ValueTask.FromResult<object?>(Results.Content(ForbiddenPage.Html, "text/html; charset=utf-8", statusCode: StatusCodes.Status403Forbidden)));
     }
 }

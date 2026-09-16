@@ -43,6 +43,14 @@
                             {
                                 <span class="tag">off</span>
                             }
+                            @if (agent.PublishedVersion is { } published)
+                            {
+                                <span class="tag" title="Runs use this published version, not the draft">v@published</span>
+                            }
+                            else
+                            {
+                                <span class="tag" title="Never published, so edits go live immediately">draft</span>
+                            }
                             @foreach (var tag in agent.AclTags)
                             {
                                 <span class="tag">@tag</span>
@@ -60,6 +68,8 @@
                             <button class="btn small primary" data-action="agent-try" data-id="@agent.Id" data-name="@agent.Name">Try it…</button>
                             <button class="btn small" data-action="agent-edit" data-id="@agent.Id">Edit…</button>
                             <button class="btn small" data-action="agent-runs" data-id="@agent.Id" data-name="@agent.Name">Runs…</button>
+                            <button class="btn small" data-action="agent-embed" data-id="@agent.Id" data-name="@agent.Name">Embed…</button>
+                            <button class="btn small" data-action="agent-versions" data-id="@agent.Id" data-name="@agent.Name">Versions…</button>
                             <button class="btn small danger" data-action="agent-delete" data-id="@agent.Id" data-name="@agent.Name">Delete</button>
                         </td>
                     </tr>

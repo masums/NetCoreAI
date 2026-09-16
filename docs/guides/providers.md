@@ -7,9 +7,9 @@ Every model, local or remote, is served through `IModelProvider` and surfaces as
 | Package | Provider id | Kind | Notes |
 |---|---|---|---|
 | `NetCoreAI.Backend.Ollama` | `ollama` | Remote | Local or LAN Ollama. Lists models from the tags endpoint; capabilities (tools, vision, embeddings) read from the show endpoint. |
-| `NetCoreAI.Backend.OpenAICompatible` | `openai` | Remote | Presets: OpenAI, Azure OpenAI, vLLM, LM Studio, Groq, DeepSeek, OpenRouter, Together, Mistral, custom. |
+| `NetCoreAI.Backend.OpenAICompatible` | `openai` | Remote | Presets: OpenAI, Azure OpenAI, Google Gemini, vLLM, LM Studio, Groq, DeepSeek, OpenRouter, Together, Mistral, custom. |
 | `NetCoreAI.Backend.Anthropic` | `anthropic` | Remote | Claude through the official SDK. No embeddings: pair with another model for the `embed` alias. |
-| `NetCoreAI.Backend.Gguf` | `gguf` | Local | llama.cpp through LLamaSharp. Reads the GGUF header for capabilities and memory estimates, applies the file's chat template, constrains JSON output with a GBNF grammar. CPU included; add `.Cuda12` or `.Vulkan` for GPU. |
+| `NetCoreAI.Backend.Gguf` | `gguf` | Local | llama.cpp through LLamaSharp. Reads the GGUF header for capabilities and memory estimates, applies the file's chat template, constrains JSON output with a GBNF grammar. Needs `LLamaSharp.Backend.Cpu` (or `.Cuda12` / `.Vulkan`) referenced from your own project. |
 | `NetCoreAI.Backend.Onnx` | `onnx` | Local | ONNX Runtime GenAI for generative models, ONNX Runtime for sentence-transformers embedding exports. CPU included; add the ORT GenAI CUDA or DirectML package for GPU. |
 
 ## Connections
@@ -41,7 +41,47 @@ Point a model at a `.gguf` file and the provider reads its header to answer capa
 
 **Structured output.** `ChatResponseFormat.ForJsonSchema` is compiled to a GBNF grammar, so llama.cpp can only sample tokens that keep the output valid. This constrains generation rather than validating afterwards, so there is no retry loop.
 
-**GPU.** The base package carries the CPU build. Add `NetCoreAI.Backend.Gguf.Cuda12` (NVIDIA) or `NetCoreAI.Backend.Gguf.Vulkan` (AMD, Intel, NVIDIA) and set the execution provider in settings. llama.cpp picks its backend once per process, so switching needs a host restart.
+### Google Gemini
+
+A preset on the OpenAI-compatible provider rather than a backend of its own, because Gemini publishes a
+real OpenAI-shaped API. Base URL `https://generativelanguage.googleapis.com/v1beta/openai`, an API key
+from AI Studio, and chat, streaming, model listing and embeddings all work.
+
+Two things are worth knowing before you pick it:
+
+**No tool calling, and NetCoreAI says so rather than letting you find out.** Gemini returns a
+`thought_signature` inside each tool call and refuses the following turn without it; the
+`Microsoft.Extensions.AI` OpenAI adapter drops that vendor field. A single call works and the turn after
+it does not — and an agent loop is multi-turn by definition. So Gemini chat models are registered without
+the tool-calling capability, which keeps agents from choosing one and failing on their second step. A
+tripwire test fails when Google or Microsoft fixes this, so the restriction cannot outlive its reason.
+
+**Embeddings are 3072-dimension** (`gemini-embedding-001`), not the 1536 that most OpenAI-compatible
+services use. A knowledge base is built around its embedding model, so this is not a setting to change
+later.
+
+Gemini's listing returns ids as `models/gemini-3.6-flash` while its documentation uses the bare name.
+Both work for generation, and NetCoreAI treats them the same.
+
+**The native library is a separate reference, and it goes in your project.** `NetCoreAI.Backend.Gguf`
+is the provider; the llama.cpp binaries come from `LLamaSharp.Backend.Cpu`, and that package delivers
+them through MSBuild build targets. NuGet does not flow build targets to a consumer of a consumer, so
+NetCoreAI cannot pass them on however it depends on them. Reference one native backend package
+directly:
+
+```bash
+dotnet add package NetCoreAI.Backend.Gguf
+dotnet add package LLamaSharp.Backend.Cpu
+```
+
+Skip the second line and everything builds, the provider registers, a GGUF file still imports and
+reports its architecture and context length — and then the first load fails, because header parsing is
+managed code and inference is not. NetCoreAI turns that failure into a message naming the package to
+add.
+
+**GPU.** Swap the native package for `LLamaSharp.Backend.Cuda12` (NVIDIA) or
+`LLamaSharp.Backend.Vulkan` (AMD, Intel, NVIDIA) and set the execution provider in settings. llama.cpp
+picks its backend once per process, so switching needs a host restart.
 
 **Memory.** Each generation borrows a pooled llama.cpp context; contexts are created on demand, reused across requests and released when the model unloads.
 

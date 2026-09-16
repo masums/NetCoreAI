@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace NetCoreAI.Storage.Sqlite;
 
 /// <summary>SQLite metadata store at {DataDirectory}/netcoreai.db (WAL mode). Zero configuration.</summary>
-public sealed class SqliteMetadataStore : IMetadataStore
+public sealed class SqliteMetadataStore : IMetadataStore, ISnapshotSource
 {
     private readonly IDbContextFactory<NetCoreAIDbContext> _factory;
     private readonly ILogger<SqliteMetadataStore> _logger;
@@ -28,6 +28,10 @@ public sealed class SqliteMetadataStore : IMetadataStore
         Agents = new SqliteAgentStore(factory);
         Runs = new SqliteRunStore(factory);
         ApiKeys = new SqliteApiKeyStore(factory);
+        Audit = new SqliteAuditStore(factory);
+        AgentVersions = new SqliteAgentVersionStore(factory);
+        ToolGroups = new SqliteToolGroupStore(factory);
+        Evaluations = new SqliteEvaluationStore(factory);
     }
 
     public IModelStore Models { get; }
@@ -47,11 +51,31 @@ public sealed class SqliteMetadataStore : IMetadataStore
 
     public IApiKeyStore ApiKeys { get; }
 
+    public IAuditStore Audit { get; }
+
+    public IAgentVersionStore AgentVersions { get; }
+
+    public IToolGroupStore ToolGroups { get; }
+
+    public IEvaluationStore Evaluations { get; }
+
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        // Schema is created from the model; migrations are introduced once the schema is frozen (pre-1.0 we recreate on breaking change).
-        await db.Database.EnsureCreatedAsync(cancellationToken).ConfigureAwait(false);
+        // Schema is created from the model; real migrations arrive once it is frozen for 1.0.
+        if (!await db.Database.EnsureCreatedAsync(cancellationToken).ConfigureAwait(false))
+        {
+            // The database was already there, so it may predate a table this version needs. EnsureCreated
+            // will not add one, and the host would otherwise die at whichever query ran first.
+            var created = await SchemaUpgrade.ApplyAsync(db, cancellationToken).ConfigureAwait(false);
+            if (created.Count > 0)
+            {
+                _logger.LogInformation(
+                    "Upgraded the NetCoreAI schema: added {Count} object(s) — {Objects}.",
+                    created.Count, string.Join(", ", created));
+            }
+        }
+
         await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;", cancellationToken).ConfigureAwait(false);
 
         // Multi-instance detection (ADR-0003).
@@ -66,6 +90,53 @@ public sealed class SqliteMetadataStore : IMetadataStore
 
         var stale = DateTimeOffset.UtcNow.AddDays(-1).UtcTicks;
         await db.Instances.Where(i => i.LastSeenAtTicks < stale).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Writes a consistent copy of the database, while it is being written to.
+    /// </summary>
+    /// <remarks>
+    /// <c>VACUUM INTO</c> rather than a file copy. A copy of a live SQLite file catches it mid-transaction
+    /// and restores into a corrupt database — and the WAL beside it holds writes the file does not, so
+    /// copying the file alone loses whatever happened most recently. This is SQLite's own answer, it takes
+    /// a read lock rather than blocking writers, and it compacts on the way out.
+    /// </remarks>
+    public async Task SnapshotAsync(string path, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        if (File.Exists(path))
+        {
+            // VACUUM INTO refuses an existing file, and saying so here beats a SQLite error about it.
+            throw new NetCoreAIException($"'{path}' already exists. A snapshot writes a new file rather than replacing one.");
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var connection = (SqliteConnection)db.Database.GetDbConnection();
+        var opened = connection.State != System.Data.ConnectionState.Open;
+        if (opened)
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = "VACUUM INTO $path;";
+            command.Parameters.AddWithValue("$path", Path.GetFullPath(path));
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (opened)
+            {
+                await connection.CloseAsync().ConfigureAwait(false);
+            }
+        }
+
+        _logger.LogInformation("Wrote a metadata snapshot to {Path}.", path);
     }
 
     public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
@@ -107,7 +178,7 @@ public sealed class SqliteMetadataStore : IMetadataStore
         public async Task UpsertAsync(ModelDescriptor model, CancellationToken ct = default)
         {
             await using var db = await f.CreateDbContextAsync(ct).ConfigureAwait(false);
-            var row = await db.Models.FindAsync([model.Id], ct).ConfigureAwait(false);
+            var row = await db.Models.FindAsync([db.CurrentTenant, model.Id], ct).ConfigureAwait(false);
             if (row is null)
             {
                 row = new ModelRow { Id = model.Id };
@@ -141,7 +212,7 @@ public sealed class SqliteMetadataStore : IMetadataStore
         public async Task UpsertAsync(ModelAlias alias, CancellationToken ct = default)
         {
             await using var db = await f.CreateDbContextAsync(ct).ConfigureAwait(false);
-            var row = await db.Aliases.FindAsync([alias.Alias], ct).ConfigureAwait(false);
+            var row = await db.Aliases.FindAsync([db.CurrentTenant, alias.Alias], ct).ConfigureAwait(false);
             if (row is null)
             {
                 row = new AliasRow { Alias = alias.Alias };
@@ -179,7 +250,7 @@ public sealed class SqliteMetadataStore : IMetadataStore
         public async Task UpsertAsync(ProviderConnection c, CancellationToken ct = default)
         {
             await using var db = await f.CreateDbContextAsync(ct).ConfigureAwait(false);
-            var row = await db.Connections.FindAsync([c.Id], ct).ConfigureAwait(false);
+            var row = await db.Connections.FindAsync([db.CurrentTenant, c.Id], ct).ConfigureAwait(false);
             if (row is null)
             {
                 row = new ConnectionRow { Id = c.Id };
@@ -224,7 +295,7 @@ public sealed class SqliteMetadataStore : IMetadataStore
         public async Task UpsertAsync(ChatSession session, CancellationToken ct = default)
         {
             await using var db = await f.CreateDbContextAsync(ct).ConfigureAwait(false);
-            var row = await db.Sessions.FindAsync([session.Id], ct).ConfigureAwait(false);
+            var row = await db.Sessions.FindAsync([db.CurrentTenant, session.Id], ct).ConfigureAwait(false);
             if (row is null)
             {
                 row = new SessionRow { Id = session.Id };
@@ -325,7 +396,7 @@ public sealed class SqliteMetadataStore : IMetadataStore
         public async Task UpsertAsync(DownloadJob job, CancellationToken ct = default)
         {
             await using var db = await f.CreateDbContextAsync(ct).ConfigureAwait(false);
-            var row = await db.Downloads.FindAsync([job.Id], ct).ConfigureAwait(false);
+            var row = await db.Downloads.FindAsync([db.CurrentTenant, job.Id], ct).ConfigureAwait(false);
             if (row is null)
             {
                 row = new DownloadRow { Id = job.Id, CreatedAtTicks = job.CreatedAt.UtcTicks };

@@ -1,6 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <ItemGroup>
     <PackageReference Include="NetCoreAI" Version="$(NetCoreAIVersion)" />
+    <!-- Local models. Two packages, and both are needed: the first is the NetCoreAI provider, the second
+         is the native llama.cpp library it calls. NuGet never flows a package's build targets to
+         consumers of a consumer, and the native binaries arrive only through those targets, so depending
+         on NetCoreAI.Backend.Gguf alone gives you the managed assembly with nothing behind it and every
+         model load fails. Swap the second for LLamaSharp.Backend.Cuda12 or .Vulkan to offload to a GPU. -->
+    <PackageReference Include="NetCoreAI.Backend.Gguf" Version="$(NetCoreAIVersion)" />
+    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
     <PackageReference Include="NetCoreAI.Backend.Ollama" Version="$(NetCoreAIVersion)" />
     <PackageReference Include="NetCoreAI.Backend.OpenAICompatible" Version="$(NetCoreAIVersion)" />
     <PackageReference Include="NetCoreAI.Backend.Anthropic" Version="$(NetCoreAIVersion)" />

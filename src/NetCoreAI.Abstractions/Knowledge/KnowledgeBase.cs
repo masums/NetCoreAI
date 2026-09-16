@@ -72,12 +72,70 @@ public sealed record KnowledgeBase
     public int ChunkCount { get; init; }
 
     /// <summary>The vector collection name for this base.</summary>
-    public string Collection => $"kb_{Id}";
+    /// <summary>
+    /// The tenant this base belongs to. Stamped when it is created; not something a caller sets.
+    /// </summary>
+    public string TenantId { get; init; } = NetCoreAI.Tenancy.TenantId.Default;
+
+    /// <summary>
+    /// The vector collection holding this base's chunks.
+    /// </summary>
+    /// <remarks>
+    /// The tenant is in the name only when it is not the default one, so a host that never heard of
+    /// tenancy keeps the collections it already has. Without it, two tenants both calling a base "docs"
+    /// would share one collection — which is the same leak as a shared table, one layer down.
+    /// </remarks>
+    public string Collection => TenantId == NetCoreAI.Tenancy.TenantId.Default ? $"kb_{Id}" : $"kb_{TenantId}_{Id}";
 }
 
 /// <summary>What a retrieval should return.</summary>
+/// <summary>How a knowledge base is searched.</summary>
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<RetrievalMode>))]
+public enum RetrievalMode
+{
+    /// <summary>
+    /// Both, fused. The default, and what it falls back from when a store cannot do keywords.
+    /// </summary>
+    Hybrid,
+
+    /// <summary>Embeddings only: finds text that means the same thing, misses exact tokens.</summary>
+    Vector,
+
+    /// <summary>Words only: finds exact tokens, misses anything phrased differently.</summary>
+    Keyword,
+}
+
 public sealed record RetrievalOptions
 {
+    /// <summary>
+    /// Vector, keyword, or both fused.
+    /// </summary>
+    /// <remarks>
+    /// Hybrid by default. The two fail differently — a vector search misses <c>ERR-4021</c> because
+    /// nothing else means the same thing, and a keyword search misses "the login screen hangs" when the
+    /// document says "authentication times out" — and the fusion below is cheap enough that choosing
+    /// between them is a worse default than having both.
+    /// </remarks>
+    public RetrievalMode Mode { get; init; } = RetrievalMode.Hybrid;
+
+    /// <summary>
+    /// Re-read the candidates with a cross-encoder and reorder them, when one is registered.
+    /// </summary>
+    /// <remarks>
+    /// On by default and inert without a reranker, so a host that registers one gets the benefit without
+    /// finding a setting first, and a host that does not pays nothing. The cost when there is one is one
+    /// model pass over a few dozen short pairs, which is why the candidate pool below is bounded.
+    /// </remarks>
+    public bool Rerank { get; init; } = true;
+
+    /// <summary>
+    /// How many candidates the reranker is given before it cuts to <see cref="TopK"/>.
+    /// </summary>
+    /// <remarks>
+    /// The whole value of reranking is in the passages the first stage ranked eighth, so the pool has to
+    /// be bigger than the answer. Too big and every question pays for passages that were never plausible.
+    /// </remarks>
+    public int RerankCandidates { get; init; } = 30;
     /// <summary>Chunks to retrieve before any filtering.</summary>
     public int TopK { get; init; } = 5;
 

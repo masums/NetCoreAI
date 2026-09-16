@@ -34,6 +34,18 @@ public abstract class RemoteModelProviderBase(IMetadataStore store, ISecretResol
     /// <summary>Capabilities guessed from the remote model id when the API does not expose them.</summary>
     protected abstract ModelCapabilities DefaultCapabilities(string remoteModelId);
 
+    /// <summary>
+    /// The same guess, for a model reached through a particular connection.
+    /// </summary>
+    /// <remarks>
+    /// A limitation usually belongs to the endpoint rather than to the model named on it, and the model
+    /// id is a poor way to recognise one: a service can serve models whose names say nothing about who is
+    /// hosting them. Providers that need the distinction override this; the rest inherit the id-only
+    /// guess unchanged.
+    /// </remarks>
+    protected virtual ModelCapabilities DefaultCapabilities(ProviderConnection connection, string remoteModelId)
+        => DefaultCapabilities(remoteModelId);
+
     public ValueTask<MemoryEstimate> EstimateMemoryAsync(ModelDescriptor model, LoadOptions options, CancellationToken cancellationToken = default)
         => ValueTask.FromResult(new MemoryEstimate(0, 0, FitVerdict.Fits, "Remote model."));
 
@@ -69,7 +81,7 @@ public abstract class RemoteModelProviderBase(IMetadataStore store, ISecretResol
             throw new ConnectionNotFoundException(connectionId);
         }
 
-        if (Options.Network.OfflineMode && !IsAllowedHost(connection.BaseUrl))
+        if (!NetCoreAI.Hub.EgressPolicy.IsAllowed(connection.BaseUrl, Options.Network))
         {
             throw new RemoteProvidersDisabledException($"{connection.Name} (offline mode)");
         }
@@ -95,19 +107,9 @@ public abstract class RemoteModelProviderBase(IMetadataStore store, ISecretResol
             RemoteModelId = remoteModelId,
             Source = $"connection:{connection.Id}",
             ContextLength = contextLength,
-            Capabilities = capabilities ?? DefaultCapabilities(remoteModelId),
+            Capabilities = capabilities ?? DefaultCapabilities(connection, remoteModelId),
             DefaultParameters = connection.DefaultParameters,
         };
-
-    private bool IsAllowedHost(string? baseUrl)
-    {
-        if (string.IsNullOrEmpty(baseUrl) || !Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri))
-        {
-            return false;
-        }
-
-        return uri.IsLoopback || Options.Network.AllowedHosts.Any(h => string.Equals(h, uri.Host, StringComparison.OrdinalIgnoreCase));
-    }
 
     protected static bool LooksLikeEmbeddingModel(string id)
         => id.Contains("embed", StringComparison.OrdinalIgnoreCase) || id.Contains("bge", StringComparison.OrdinalIgnoreCase) || id.Contains("e5-", StringComparison.OrdinalIgnoreCase) || id.Contains("minilm", StringComparison.OrdinalIgnoreCase);

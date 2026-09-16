@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 
 namespace NetCoreAI.Tools;
 
@@ -18,7 +19,11 @@ public interface IToolRegistry
         CancellationToken cancellationToken = default);
 }
 
-internal sealed class ToolRegistry(IMetadataStore store, IToolInvoker invoker, ICodeToolSource codeTools) : IToolRegistry
+internal sealed class ToolRegistry(
+    IMetadataStore store,
+    IToolInvoker invoker,
+    ICodeToolSource codeTools,
+    ILogger<ToolRegistry> logger) : IToolRegistry
 {
     public async Task<IReadOnlyList<AIFunction>> GetFunctionsAsync(
         IEnumerable<string> toolIds,
@@ -34,11 +39,37 @@ internal sealed class ToolRegistry(IMetadataStore store, IToolInvoker invoker, I
             return [];
         }
 
+        // A name might be a group. Expanded here rather than when the agent is saved, so adding a tool to
+        // a group gives it to every agent that named the group — which is the point of having groups, and
+        // would not happen if the list were flattened once and stored.
+        foreach (var group in await store.ToolGroups.ListAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (wanted.Contains(group.Id) || wanted.Contains(group.Name))
+            {
+                foreach (var id in group.ToolIds)
+                {
+                    wanted.Add(id);
+                }
+            }
+        }
+
         var functions = new List<AIFunction>();
         foreach (var tool in await store.Tools.ListAsync(cancellationToken).ConfigureAwait(false))
         {
             if (tool.Enabled && (wanted.Contains(tool.Id) || wanted.Contains(tool.Name)) && Permitted(tool, context))
             {
+                if (tool.Deprecated)
+                {
+                    // Still handed over: removing a capability from a running agent mid-flight is worse
+                    // than letting it use an old tool for another day. The warning is what makes the
+                    // deprecation something a person eventually acts on.
+                    logger.LogWarning(
+                        "Agent is using deprecated tool {Name}. {Message}{Replacement}",
+                        tool.Name,
+                        tool.DeprecationMessage ?? "It still works and should not be used in anything new.",
+                        tool.ReplacedBy is { Length: > 0 } replacement ? $" Use {replacement} instead." : "");
+                }
+
                 functions.Add(new ToolFunction(tool, invoker, context));
             }
         }

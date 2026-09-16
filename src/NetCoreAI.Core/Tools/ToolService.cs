@@ -21,6 +21,23 @@ public interface IToolService
 
     Task DeleteAsync(string id, CancellationToken cancellationToken = default);
 
+    /// <summary>The named sets of tools this host has.</summary>
+    Task<IReadOnlyList<ToolGroup>> ListGroupsAsync(CancellationToken cancellationToken = default);
+
+    Task<ToolGroup> SaveGroupAsync(ToolGroup group, CancellationToken cancellationToken = default);
+
+    Task DeleteGroupAsync(string id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Agents that name this tool, directly or through a group.
+    /// </summary>
+    /// <remarks>
+    /// Asked before a change and shown with the answer. A tool is not owned by the person editing it —
+    /// changing what the model sees changes what every agent using it does, and the list of those agents
+    /// is the thing that makes the change a decision rather than a reflex.
+    /// </remarks>
+    Task<IReadOnlyList<string>> UsedByAsync(string toolIdOrName, CancellationToken cancellationToken = default);
+
     /// <summary>Builds a tool from one of the host's endpoints, as discovery described it.</summary>
     Task<ToolDefinition> CreateFromEndpointAsync(string endpointId, CancellationToken cancellationToken = default);
 
@@ -35,6 +52,8 @@ internal sealed partial class ToolService(
     IMetadataStore store,
     IEndpointDiscovery discovery,
     ICodeToolSource codeTools,
+    NetCoreAI.Security.IAuditLog audit,
+    NetCoreAI.Tenancy.ITenantQuotas quotas,
     ILogger<ToolService> logger) : IToolService
 {
     [GeneratedRegex("^[a-zA-Z][a-zA-Z0-9_]{0,63}$")]
@@ -89,10 +108,122 @@ internal sealed partial class ToolService(
         saved = AuthorizeInProcess(saved, allowInProcessBy);
         ValidateParameters(saved);
 
+        var previous = await store.Tools.GetAsync(saved.Id, cancellationToken).ConfigureAwait(false);
+        var existed = previous is not null;
+        if (!existed)
+        {
+            await quotas.EnsureRoomForAsync(NetCoreAI.Tenancy.QuotaKind.Tool, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+
+        // The version counts changes to what the model sees, and nothing else. Bumping it for an edited
+        // internal note would make the number meaningless, and the number is only worth having if a
+        // change to it means the calls this tool receives may now be different.
+        saved = saved with
+        {
+            Version = previous is null ? 1 : previous.Version + (SurfaceChanged(previous, saved) ? 1 : 0),
+        };
+
         await store.Tools.UpsertAsync(saved, cancellationToken).ConfigureAwait(false);
         logger.LogInformation("Saved tool {Name} ({Kind}, {Mode}).", saved.Name, saved.Kind, saved.InvocationMode);
+
+        if (previous is not null && SurfaceChanged(previous, saved))
+        {
+            var users = await UsedByAsync(saved.Id, cancellationToken).ConfigureAwait(false);
+            if (users.Count > 0)
+            {
+                // Said out loud, because this is the moment several agents quietly start behaving
+                // differently and nobody was asked.
+                logger.LogWarning(
+                    "Tool {Name} changed what the model sees (now version {Version}). {Count} agent(s) use it: {Agents}.",
+                    saved.Name, saved.Version, users.Count, string.Join(", ", users));
+            }
+        }
+
+        await audit.WriteAsync(
+            existed ? NetCoreAI.Security.AuditAction.Updated : NetCoreAI.Security.AuditAction.Created,
+            NetCoreAI.Security.AuditEntity.Tool,
+            saved.Id,
+            saved.Name,
+
+            // In-process is the setting worth seeing in a log without opening the tool: it is the one that
+            // decides whether a model's call runs inside this host.
+            saved.InvocationMode == ToolInvocationMode.InProcess ? "runs in-process" : null,
+            cancellationToken).ConfigureAwait(false);
+
         return saved;
     }
+
+    public Task<IReadOnlyList<ToolGroup>> ListGroupsAsync(CancellationToken cancellationToken = default) =>
+        store.ToolGroups.ListAsync(cancellationToken);
+
+    public async Task<ToolGroup> SaveGroupAsync(ToolGroup group, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+
+        if (!NamePattern.IsMatch(group.Id))
+        {
+            throw new NetCoreAIException($"'{group.Id}' is not a usable group id. Use a letter followed by letters, digits or underscores.");
+        }
+
+        var saved = group with { UpdatedAt = DateTimeOffset.UtcNow };
+        await store.ToolGroups.UpsertAsync(saved, cancellationToken).ConfigureAwait(false);
+        await audit.WriteAsync(
+            NetCoreAI.Security.AuditAction.Updated,
+            NetCoreAI.Security.AuditEntity.Tool,
+            saved.Id,
+            saved.Name,
+            $"tool group: {saved.ToolIds.Count} tool(s)",
+            cancellationToken).ConfigureAwait(false);
+
+        return saved;
+    }
+
+    public Task DeleteGroupAsync(string id, CancellationToken cancellationToken = default) =>
+        store.ToolGroups.DeleteAsync(id, cancellationToken);
+
+    public async Task<IReadOnlyList<string>> UsedByAsync(string toolIdOrName, CancellationToken cancellationToken = default)
+    {
+        var tool = await store.Tools.GetAsync(toolIdOrName, cancellationToken).ConfigureAwait(false);
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { toolIdOrName };
+        if (tool is not null)
+        {
+            names.Add(tool.Id);
+            names.Add(tool.Name);
+        }
+
+        // A group counts: an agent that named the group is using every tool in it, and is exactly the
+        // agent somebody editing the tool would otherwise miss.
+        var groups = (await store.ToolGroups.ListAsync(cancellationToken).ConfigureAwait(false))
+            .Where(g => g.ToolIds.Any(names.Contains))
+            .Select(g => g.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var agents = await store.Agents.ListAsync(cancellationToken).ConfigureAwait(false);
+        return [.. agents
+            .Where(a => a.ToolIds.Any(t => names.Contains(t) || groups.Contains(t)))
+            .Select(a => a.Id)];
+    }
+
+    /// <summary>
+    /// Whether two versions of a tool look different to a model.
+    /// </summary>
+    /// <remarks>
+    /// The name it is called by, the description it chooses from, and the parameters it fills in. A
+    /// changed timeout or a new owner note is invisible to the model and is not a new version.
+    /// </remarks>
+    private static bool SurfaceChanged(ToolDefinition before, ToolDefinition after) =>
+        !string.Equals(before.Name, after.Name, StringComparison.Ordinal)
+        || !string.Equals(before.Description, after.Description, StringComparison.Ordinal)
+        || !Same([.. before.ModelParameters], [.. after.ModelParameters]);
+
+    private static bool Same(IReadOnlyList<ToolParameter> before, IReadOnlyList<ToolParameter> after) =>
+        before.Count == after.Count
+        && before.Zip(after).All(pair =>
+            string.Equals(pair.First.Name, pair.Second.Name, StringComparison.Ordinal)
+            && string.Equals(pair.First.Description, pair.Second.Description, StringComparison.Ordinal)
+            && pair.First.Type == pair.Second.Type
+            && pair.First.Required == pair.Second.Required
+            && pair.First.Binding == pair.Second.Binding);
 
     /// <summary>
     /// Decides whether this definition may use in-process invocation, per ADR-0004.
@@ -159,8 +290,14 @@ internal sealed partial class ToolService(
         }
     }
 
-    public Task DeleteAsync(string id, CancellationToken cancellationToken = default) =>
-        store.Tools.DeleteAsync(id, cancellationToken);
+    public async Task DeleteAsync(string id, CancellationToken cancellationToken = default)
+    {
+        // Read before deleting, so the audit entry can carry the name. Afterwards there is nothing to
+        // look it up from, and "tool 7f3a… was deleted" answers nobody's question.
+        var tool = await store.Tools.GetAsync(id, cancellationToken).ConfigureAwait(false);
+        await store.Tools.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
+        await audit.WriteAsync(NetCoreAI.Security.AuditAction.Deleted, NetCoreAI.Security.AuditEntity.Tool, id, tool?.Name, cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
 
     public async Task<ToolDefinition> CreateFromEndpointAsync(string endpointId, CancellationToken cancellationToken = default)
     {

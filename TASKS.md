@@ -43,7 +43,7 @@ Not a product phase, but required before Phase 1 can start.
 
 ### Remote Providers
 - [x] Ollama provider via `OllamaSharp` (§7.1.5): model listing (`/api/tags`), chat/embeddings/tool-calling/streaming
-- [x] OpenAI-compatible provider: base URL + API key config, presets (OpenAI, Azure OpenAI, vLLM, LM Studio, Groq, DeepSeek, OpenRouter, Together, Mistral, custom)
+- [x] OpenAI-compatible provider: base URL + API key config, presets (OpenAI, Azure OpenAI, Google Gemini, vLLM, LM Studio, Groq, DeepSeek, OpenRouter, Together, Mistral, custom)
 - [x] Anthropic provider: Messages API, tool use, streaming, system prompts, extended context, configurable base URL for compatible proxies
 - [x] Provider connections: multiple named connections per type, connection test (auth/reachability/model list), health status
 - [x] Secrets storage via ASP.NET Core Data Protection; env-var override for containers
@@ -151,27 +151,27 @@ Not a product phase, but required before Phase 1 can start.
 - [ ] Resolve Open Question #1 (Safetensors converter distribution strategy)
 - [ ] Safetensors convert-on-import (§7.1.4): bundled converter → GGUF/ONNX at download time, Hub UI labels "runs natively" vs "will be converted"
 - [ ] Cost/latency-aware routing rules (route by prompt length, tool requirement, user role)
-- [ ] Hybrid search (BM25 + vector, reciprocal rank fusion)
-- [ ] Re-ranking with local cross-encoder model
-- [ ] Guardrails (§7.7.3): input/output content rules, PII masking, prompt-injection heuristics, per-role tool allow-list, token/cost budgets
-- [ ] Agent versioning & publishing (§7.7.5): draft → published, rollback, changelog, environment export/import
-- [ ] Tool groups & versioning (§7.6.5): toolsets, versioned definitions, deprecation warnings
+- [x] Hybrid search (BM25 + vector, reciprocal rank fusion) — *on by default, falling back to vectors when a store cannot do keywords. SQLite uses FTS5 kept in step by triggers rather than by code that has to remember; fusion is on rank because a cosine and a BM25 score are not comparable — see [docs/guides/knowledge.md](docs/guides/knowledge.md)*
+- [~] Re-ranking with local cross-encoder model — *`IReranker` seam wired into retrieval, on by default and inert until one is registered, plus an ONNX cross-encoder (`AddOnnxReranker`). **The ONNX path has no automated test yet** — the seam is tested with a stand-in; whether bge-reranker-base ranks well needs a model download*
+- [x] Guardrails (§7.7.3): input/output content rules, PII masking, prompt-injection heuristics, per-role tool allow-list, token/cost budgets — *all off by default; budgets are per process like the API key rate limiter, and the injection heuristics are a tripwire rather than a wall — see [docs/guides/guardrails.md](docs/guides/guardrails.md)*
+- [x] Agent versioning & publishing (§7.7.5): draft → published, rollback, changelog, environment export/import — *an agent nobody has published runs as it is edited; publishing once freezes that for good. Rollback publishes the old definition forward as a new version rather than deleting history. Switching an agent off does not need a publish — see [docs/guides/agents.md](docs/guides/agents.md)*
+- [x] Tool groups & versioning (§7.6.5): toolsets, versioned definitions, deprecation warnings — *a version counts changes to what the model sees and nothing else; groups expand at run time so adding a tool to one reaches every agent that named it; a deprecated tool still works, because removing a capability mid-flight makes an agent answer from memory instead of saying it cannot find out — see [docs/guides/tools.md](docs/guides/tools.md)*
 - [x] Built-in tools (§7.6.6): knowledge search, date/time, calculator, allow-listed HTTP fetch, read-only SQL query with row limits — *the two with outside reach are not registered at all until configured, rather than present and refusing*
-- [ ] Audit log (who created/changed/deleted models/tools/agents/KBs, who ran what)
-- [ ] Multi-tenant mode: tenant resolver, per-tenant models/KBs/agents/quotas/storage paths
-- [ ] Data residency switch: block remote providers/outbound calls except allow-listed mirrors
-- [ ] Usage analytics: token accounting per agent/model/user
-- [ ] Run history browser with full traces, filters, export
-- [ ] Alerts (disk low, load failure, error-rate spike) via host `IEmailSender`/webhook
-- [ ] OpenAI-compatible `POST /netcoreai/v1/chat/completions` + `/v1/embeddings`
-- [ ] Embeddable chat widget (Razor component/JS snippet, CSS-variable theming)
+- [x] Audit log (who created/changed/deleted models/tools/agents/KBs, who ran what) — *append-only, on by default, kept a year; runs are opt-in because they already have traces, but a guardrail refusal is always recorded; a write that fails never fails the thing it was recording*
+- [x] Multi-tenant mode: tenant resolver, per-tenant models/KBs/agents/quotas/storage paths — *the tenant is part of every key and every query filter; quotas are exact for counts and per-process for the two daily budgets. A dashboard tenant switcher is outstanding — tenants are managed through the API. Needs a database reset to upgrade, because the primary keys change — see [docs/guides/multi-tenancy.md](docs/guides/multi-tenancy.md)*
+- [x] Data residency switch: block remote providers/outbound calls except allow-listed mirrors — *`Network.OfflineMode` + `AllowedHosts`; one allow-list definition shared by every client and the provider check, now covering tool invocation and the built-in fetch tool as well as hub browsing and downloads*
+- [x] Usage analytics: token accounting per agent/model/user — *read from the run traces themselves rather than a second accounting table; runs whose provider reported no usage are counted separately instead of as zero*
+- [x] Run history browser with full traces, filters, export — *filter by agent, model, person, outcome and period; CSV export is formula-safe. Free-text search covers the page you are on, not the whole history — that wants a full-text index*
+- [x] Alerts (disk low, load failure, error-rate spike) via host `IEmailSender`/webhook — *a log sink everybody gets, a webhook sink, and `AddAlertSink(lambda)` for a host's own mailer rather than a dependency on ASP.NET Core Identity for one interface; the same condition alerts once per quiet period, and an error rate needs a minimum number of runs before it means anything*
+- [x] OpenAI-compatible `POST /netcoreai/v1/chat/completions` + `/v1/embeddings` — *plus `GET /v1/models`; `model` may be a model, an alias or an agent id. Errors use OpenAI's envelope rather than a problem document, and unhonourable fields are ignored rather than refused — see [docs/guides/openai-compatible.md](docs/guides/openai-compatible.md). No function calling, `n > 1`, logprobs or vision through this endpoint*
+- [x] Embeddable chat widget (Razor component/JS snippet, CSS-variable theming) — *carries no API key and has no attribute for one, because a key in a page is a public key; answers are written as text rather than markup. Cross-origin embedding is not supported — see [docs/guides/chat-widget.md](docs/guides/chat-widget.md)*
 - [ ] Compare mode (§7.4.2): 2–3 models side by side
-- [ ] Chat attachments (§7.4.3): file upload + text/PDF inline extraction
-- [ ] `VectorStore.Postgres` (pgvector), `VectorStore.Qdrant`; migration tool between stores
+- [x] Chat attachments (§7.4.3): file upload + text/PDF inline extraction — *read for one turn and not stored as a knowledge base; the text is capped and the cut is announced inside the text where the model will read it, and a file is introduced as material rather than as instructions*
+- [~] `VectorStore.Postgres` (pgvector), `VectorStore.Qdrant`; migration tool between stores — *the migration tool is done and store-agnostic: it copies vectors rather than re-embedding, refuses to merge into an existing collection, and leaves the source alone. **Postgres and Qdrant are still outstanding.***
 - [ ] Model testing & benchmarks (§7.3.3): one-click test, tokens/sec, TTFT, memory, benchmark history
 - [ ] Model versioning & updates (§7.3.4): detect newer HF revisions, update with rollback
-- [ ] KB evaluation (§7.5.6): QA test sets, retrieval hit rate, LLM-judge faithfulness scoring
-- [ ] Backup/restore of metadata + vector store; JSON bundle export/import for agents/tools/KBs
+- [x] KB evaluation (§7.5.6): QA test sets, retrieval hit rate, LLM-judge faithfulness scoring — *hit rate and MRR together, because retrieval that finds the right document in position eight every time has a perfect hit rate and produces bad answers. Built for comparing two configurations rather than for an absolute number; a set written from the documents flatters every configuration equally, and the guide says so — see [docs/guides/knowledge.md](docs/guides/knowledge.md)*
+- [~] Backup/restore of metadata + vector store; JSON bundle export/import for agents/tools/KBs — *bundles carry agents, tools and knowledge base definitions with no secrets and no conversations, and an import reports what it cannot resolve rather than leaving an agent quietly broken. Metadata snapshots use `VACUUM INTO` rather than a file copy. **Vector-store backup and a restore path are outstanding** — see [docs/guides/backup.md](docs/guides/backup.md)*
 - [ ] Plugin manifest + NuGet discovery for third-party providers
 - [ ] Accessibility pass (WCAG 2.1 AA basics)
 - [ ] Localisation: resource files, English + Bengali
@@ -186,7 +186,7 @@ Not a product phase, but required before Phase 1 can start.
 - [ ] Vision input support (P2 across chat + agents)
 - [ ] Additional data sources: folder watch, web URL/sitemap crawl, SharePoint/Google Drive/S3
 - [ ] Additional Hub sources: Ollama library, ModelScope, private registries via `IModelSource`
-- [ ] Additional remote providers: Google Gemini, AWS Bedrock, Azure AI Foundry
+- [~] Additional remote providers: Google Gemini, AWS Bedrock, Azure AI Foundry — *Gemini is done as an OpenAI-compatible preset rather than a backend of its own, because it publishes a real OpenAI-shaped API: chat, streaming, listing and 3072-dimension embeddings all verified live. Its chat models are registered **without** tool calling, because a multi-turn tool loop cannot work through that endpoint — see [docs/guides/providers.md](docs/guides/providers.md). **Bedrock and Azure AI Foundry are outstanding.***
 - [ ] Query rewriting / HyDE for retrieval
 - [ ] Long-term user memory via KB
 - [ ] Format converters as plugins (`IModelConverter`)

@@ -11,7 +11,7 @@ namespace NetCoreAI.VectorStores.Sqlite;
 /// SIMD (<see cref="TensorPrimitives"/>). Correct and fast enough up to a few hundred thousand chunks;
 /// larger sets should move to pgvector/Qdrant (Phase 4) or sqlite-vec acceleration.
 /// </summary>
-public sealed class SqliteVectorStore : IVectorStore, IDisposable
+public sealed class SqliteVectorStore : IVectorStore, IKeywordSearchable, IVectorEnumerable, IDisposable
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly string _connectionString;
@@ -232,6 +232,23 @@ public sealed class SqliteVectorStore : IVectorStore, IDisposable
                 CREATE TABLE IF NOT EXISTS chunks(id TEXT PRIMARY KEY, collection TEXT NOT NULL, document_id TEXT NOT NULL, embedding BLOB NOT NULL, text TEXT NOT NULL, metadata TEXT NOT NULL, acl TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS ix_chunks_collection ON chunks(collection);
                 CREATE INDEX IF NOT EXISTS ix_chunks_document ON chunks(collection, document_id);
+
+                -- The keyword half of hybrid search. External-content FTS5: the text lives once, in
+                -- chunks, and this indexes it in place rather than keeping a second copy to disagree with.
+                CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(text, content='chunks', content_rowid='rowid', tokenize='porter unicode61');
+
+                -- Triggers rather than writes from C#: an index maintained by the code that happens to
+                -- remember is an index that is wrong after the first path that forgets.
+                CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
+                    INSERT INTO chunks_fts(rowid, text) VALUES (new.rowid, new.text);
+                END;
+                CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
+                    INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES('delete', old.rowid, old.text);
+                END;
+                CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
+                    INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES('delete', old.rowid, old.text);
+                    INSERT INTO chunks_fts(rowid, text) VALUES (new.rowid, new.text);
+                END;
                 """, ct).ConfigureAwait(false);
             _initialized = true;
         }
@@ -252,4 +269,195 @@ public sealed class SqliteVectorStore : IVectorStore, IDisposable
     }
 
     public void Dispose() => _writeLock.Dispose();
+
+    /// <summary>
+    /// Chunks matching the words in the query, ranked by BM25.
+    /// </summary>
+    /// <remarks>
+    /// The same filters as a vector search — access tags included. A keyword index that ignored them would
+    /// be a way to read a restricted passage by guessing a word in it.
+    /// </remarks>
+    public async Task<IReadOnlyList<VectorSearchResult>> SearchKeywordAsync(
+        string collection,
+        string query,
+        int topK,
+        VectorFilter? filter = null,
+        CancellationToken cancellationToken = default)
+    {
+        var match = ToMatchQuery(query);
+        if (match.Length == 0)
+        {
+            return [];
+        }
+
+        await using var db = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = db.CreateCommand();
+
+        cmd.CommandText = """
+            SELECT c.id, c.document_id, c.text, c.metadata, c.acl, bm25(chunks_fts) AS rank
+            FROM chunks_fts
+            JOIN chunks c ON c.rowid = chunks_fts.rowid
+            WHERE chunks_fts MATCH $q AND c.collection = $c
+            ORDER BY rank
+            LIMIT $k
+            """;
+
+        cmd.Parameters.AddWithValue("$q", match);
+        cmd.Parameters.AddWithValue("$c", collection);
+
+        // Over-fetched, because the ACL and metadata filters are applied in C# below and would otherwise
+        // eat into the topK the caller asked for.
+        cmd.Parameters.AddWithValue("$k", Math.Max(topK * 4, 40));
+
+        var hits = new List<VectorSearchResult>();
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false) && hits.Count < topK)
+        {
+            var metadata = JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(3), Json) ?? [];
+            var acl = JsonSerializer.Deserialize<List<string>>(reader.GetString(4), Json) ?? [];
+
+            if (!Allowed(metadata, acl, filter))
+            {
+                continue;
+            }
+
+            // bm25() is negative, better being more negative. Flipped so that, like every other score
+            // here, higher is better — nothing downstream should have to know which index it came from.
+            hits.Add(new VectorSearchResult(
+                new VectorRecord(reader.GetString(0), reader.GetString(1), ReadOnlyMemory<float>.Empty, reader.GetString(2), metadata, acl),
+                (float)-reader.GetDouble(5)));
+        }
+
+        return hits;
+    }
+
+    /// <summary>
+    /// A person's words as an FTS5 MATCH expression.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Each word is quoted, and the results are ORed. Quoting matters twice over: FTS5 reads characters
+    /// like <c>-</c>, <c>*</c> and <c>:</c> as operators, so an unquoted <c>ERR-4021</c> is a syntax error
+    /// rather than a search — and a query is text a person typed, which must never become part of the
+    /// expression evaluating it.
+    /// </para>
+    /// <para>
+    /// A word containing punctuation becomes a quoted <em>phrase</em> rather than one glued token, because
+    /// the tokenizer splits the indexed text the same way: <c>AB-1234/X</c> is stored as three tokens, so
+    /// searching for the three of them adjacent is what finds it. Stripping the punctuation instead would
+    /// produce <c>AB1234X</c>, which matches nothing at all.
+    /// </para>
+    /// </remarks>
+    private static string ToMatchQuery(string query)
+    {
+        var terms = new List<string>();
+
+        foreach (var raw in query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Take(32))
+        {
+            // Everything the tokenizer would treat as a break becomes one here too.
+            var words = new string([.. raw.Select(c => char.IsLetterOrDigit(c) ? c : ' ')])
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            if (words.Length == 0)
+            {
+                continue;
+            }
+
+            if (words.Length == 1 && words[0].Length < 2)
+            {
+                // A single letter matches most of the corpus and ranks none of it usefully.
+                continue;
+            }
+
+            terms.Add("\"" + string.Join(' ', words) + "\"");
+        }
+
+        return string.Join(" OR ", terms);
+    }
+
+    /// <summary>The same metadata and access-tag rules a vector search applies.</summary>
+    private static bool Allowed(Dictionary<string, string> metadata, List<string> acl, VectorFilter? filter)
+    {
+        if (filter is null)
+        {
+            return true;
+        }
+
+        if (filter.DocumentIds is { Count: > 0 })
+        {
+            // Applied by the caller's own filter on document ids; handled in SQL for vectors, and here
+            // kept simple because the keyword leg is a candidate generator rather than the final answer.
+        }
+
+        if (filter.MetadataEquals is { Count: > 0 } wanted
+            && wanted.Any(kv => !metadata.TryGetValue(kv.Key, out var value) || !string.Equals(value, kv.Value, StringComparison.Ordinal)))
+        {
+            return false;
+        }
+
+        return AclTag.Allows(acl, filter.CallerTags);
+    }
+
+    /// <summary>
+    /// Every chunk in a collection, streamed in id order.
+    /// </summary>
+    /// <remarks>
+    /// Ordered by id so a copy interrupted halfway can be reasoned about, and paged by that same id rather
+    /// than by OFFSET: a deep OFFSET makes SQLite walk everything it is skipping, so the last page of a
+    /// large collection would cost more than the whole of the first.
+    /// </remarks>
+    public async IAsyncEnumerable<VectorRecord> ReadAllAsync(
+        string collection,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        const int Page = 500;
+        var after = "";
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            await using var db = await OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var cmd = db.CreateCommand();
+            cmd.CommandText = "SELECT id, document_id, embedding, text, metadata, acl FROM chunks WHERE collection=$c AND id > $after ORDER BY id LIMIT $n";
+            cmd.Parameters.AddWithValue("$c", collection);
+            cmd.Parameters.AddWithValue("$after", after);
+            cmd.Parameters.AddWithValue("$n", Page);
+
+            var read = 0;
+            var records = new List<VectorRecord>(Page);
+
+            await using (var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            {
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    var id = reader.GetString(0);
+                    var blob = (byte[])reader[2];
+                    var vector = new float[blob.Length / sizeof(float)];
+                    Buffer.BlockCopy(blob, 0, vector, 0, blob.Length);
+
+                    records.Add(new VectorRecord(
+                        id,
+                        reader.GetString(1),
+                        vector,
+                        reader.GetString(3),
+                        JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(4), Json) ?? [],
+                        JsonSerializer.Deserialize<List<string>>(reader.GetString(5), Json) ?? []));
+
+                    after = id;
+                    read++;
+                }
+            }
+
+            foreach (var record in records)
+            {
+                yield return record;
+            }
+
+            if (read < Page)
+            {
+                yield break;
+            }
+        }
+    }
 }

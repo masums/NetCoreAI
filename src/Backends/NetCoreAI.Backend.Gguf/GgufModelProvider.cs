@@ -285,6 +285,46 @@ public sealed class GgufModelProvider(IOptionsMonitor<NetCoreAIOptions> netCoreA
         return (long)(2L * layers * kvHeads * headDim * contextSize * bytesPerElement);
     }
 
+    /// <summary>
+    /// The message a host gets when the managed LLamaSharp assembly is present but the native llama.cpp
+    /// library behind it is not.
+    /// </summary>
+    /// <remarks>
+    /// This is a packaging trap rather than a bug, and it is worth naming precisely because the symptom
+    /// points nowhere useful. NuGet does not flow a package's build assets to consumers of a consumer, and
+    /// LLamaSharp ships its native binaries only through build targets. So referencing
+    /// NetCoreAI.Backend.Gguf gets the managed assembly with nothing behind it, and the first load dies in
+    /// a type initializer with a four-item checklist that does not mention the one thing to do.
+    /// </remarks>
+    internal const string NativeRuntimeMissing =
+        "The GGUF backend is registered but the native llama.cpp library is missing, so no local model can be loaded. " +
+        "Add one native backend package to your own project alongside NetCoreAI.Backend.Gguf: " +
+        "LLamaSharp.Backend.Cpu, or LLamaSharp.Backend.Cuda12 or LLamaSharp.Backend.Vulkan for GPU offload. " +
+        "It has to be referenced by your project rather than by NetCoreAI, because NuGet does not pass build " +
+        "targets through an intermediate package and that is how these binaries are delivered.";
+
+    /// <summary>Turns a native-load failure into <see cref="NativeRuntimeMissing"/>, and leaves anything else alone.</summary>
+    private static NetCoreAIException Describe(Exception ex, string modelName) =>
+        IsNativeLoadFailure(ex)
+            ? new NetCoreAIException(NativeRuntimeMissing, ex)
+            : new NetCoreAIException($"llama.cpp could not load '{modelName}': {ex.Message}", ex);
+
+    internal static bool IsNativeLoadFailure(Exception ex)
+    {
+        for (var e = ex; e is not null; e = e.InnerException)
+        {
+            // LLamaSharp raises RuntimeError from a static constructor, so it reaches callers wrapped in a
+            // TypeInitializationException whose message names only the type. Both layers have to be checked.
+            if (e is TypeInitializationException or DllNotFoundException or BadImageFormatException
+                || e.GetType().FullName == "LLama.Exceptions.RuntimeError")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public async ValueTask<LoadedModel> LoadAsync(ModelDescriptor model, LoadOptions options, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(model);
@@ -350,7 +390,7 @@ public sealed class GgufModelProvider(IOptionsMonitor<NetCoreAIOptions> netCoreA
         }
         catch (Exception ex) when (ex is not OperationCanceledException and not NetCoreAIException)
         {
-            throw new NetCoreAIException($"llama.cpp could not load '{model.Name}': {ex.Message}", ex);
+            throw Describe(ex, model.Name);
         }
 
         var handle = new GgufLoadedModel(model, weights, parameters, metadata);

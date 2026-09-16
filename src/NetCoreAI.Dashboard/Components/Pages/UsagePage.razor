@@ -1,0 +1,144 @@
+@using NetCoreAI.Agents
+@using NetCoreAI.Telemetry
+@inject IUsageAnalytics Analytics
+@inject IAgentService Agents
+
+<header class="page-header">
+    <h1>Usage</h1>
+    <p class="muted">What has been run, what it used, and what it cost. Read from the run traces themselves, so these are the same figures each run's own page shows.</p>
+</header>
+
+<section class="card">
+    <div class="toolbar">
+        <h2>Last @_days days</h2>
+        <span class="muted">@_summary.Runs run(s)</span>
+    </div>
+
+    @if (_summary.Runs == 0)
+    {
+        <p class="empty">No runs in this period. Try an agent in the <a href="@Ctx.Url("agents")">Agents</a> playground and come back.</p>
+    }
+    else
+    {
+        <dl class="stats">
+            <div><dt>Runs</dt><dd>@_summary.Runs.ToString("N0")</dd></div>
+            <div><dt>Tokens</dt><dd>@((_summary.InputTokens + _summary.OutputTokens).ToString("N0"))</dd></div>
+            <div><dt>Estimated cost</dt><dd>@(_summary.Cost == 0 ? "–" : _summary.Cost.ToString("0.####"))</dd></div>
+            <div><dt>Median run</dt><dd>@_summary.MedianElapsedMs.ToString("N0") ms</dd></div>
+            <div><dt>Failed</dt><dd>@_summary.Failed.ToString("N0")</dd></div>
+        </dl>
+
+        @if (_summary.Unmeasured > 0)
+        {
+            <p class="muted small">
+                @_summary.Unmeasured of these run(s) reported no token counts, so the totals above are lower than what
+                was actually used. A provider that does not return usage, or a run from before these figures were kept,
+                both land here.
+            </p>
+        }
+
+        <div class="grid-2">
+            @Breakdown("By agent", _summary.ByAgent)
+            @Breakdown("By model", _summary.ByModel)
+            @Breakdown("By person", _summary.ByUser)
+        </div>
+    }
+</section>
+
+<section class="card">
+    <div class="toolbar">
+        <h2>Runs</h2>
+        <span class="muted" id="runs-count"></span>
+    </div>
+
+    <form id="usage-filter" class="inline-form">
+        <select name="agentId">
+            <option value="">every agent…</option>
+            @foreach (var agent in _agents)
+            {
+                <option value="@agent.Id">@agent.Name</option>
+            }
+        </select>
+        <select name="success">
+            <option value="">any outcome…</option>
+            <option value="true">succeeded</option>
+            <option value="false">failed</option>
+        </select>
+        <select name="days">
+            <option value="1">today</option>
+            <option value="7">last 7 days</option>
+            <option value="30" selected>last 30 days</option>
+            <option value="0">everything kept</option>
+        </select>
+        <input name="search" placeholder="text in the question or answer" />
+        <button class="btn" type="submit">Show</button>
+        <button class="btn" type="button" data-action="usage-export">Export CSV</button>
+    </form>
+
+    <p class="muted small">
+        The text search looks through the page you are on, not the whole history — the question and the answer
+        live inside each trace rather than in a column. Narrow by agent and period first.
+    </p>
+
+    <div id="runs-list"><p class="empty">Choose a filter and press Show.</p></div>
+</section>
+
+@code {
+    [Parameter] public DashboardContext Ctx { get; set; } = default!;
+
+    private UsageSummary _summary = new(0, 0);
+    private IReadOnlyList<AgentDefinition> _agents = [];
+    private const int _days = 30;
+
+    private static RenderFragment Breakdown(string title, IReadOnlyList<UsageBreakdown> rows) => builder =>
+    {
+        builder.OpenElement(0, "div");
+        builder.OpenElement(2, "h3");
+        builder.AddContent(3, title);
+        builder.CloseElement();
+
+        if (rows.Count == 0)
+        {
+            builder.OpenElement(4, "p");
+            builder.AddAttribute(5, "class", "empty");
+            builder.AddContent(6, "Nothing yet.");
+            builder.CloseElement();
+        }
+        else
+        {
+            builder.OpenElement(7, "table");
+            builder.AddMarkupContent(8, "<thead><tr><th></th><th>Runs</th><th>Tokens</th><th>Cost</th></tr></thead>");
+            builder.OpenElement(9, "tbody");
+
+            // Ten lines. A breakdown long enough to scroll is a spreadsheet, and there is an export for that.
+            foreach (var row in rows.Take(10))
+            {
+                builder.OpenElement(10, "tr");
+                builder.OpenElement(11, "td");
+                builder.AddContent(12, row.Key);
+                builder.CloseElement();
+                builder.OpenElement(13, "td");
+                builder.AddContent(14, row.Runs.ToString("N0"));
+                builder.CloseElement();
+                builder.OpenElement(15, "td");
+                builder.AddContent(16, row.Tokens.ToString("N0"));
+                builder.CloseElement();
+                builder.OpenElement(17, "td");
+                builder.AddContent(18, row.Cost == 0 ? "–" : row.Cost.ToString("0.####"));
+                builder.CloseElement();
+                builder.CloseElement();
+            }
+
+            builder.CloseElement();
+            builder.CloseElement();
+        }
+
+        builder.CloseElement();
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _summary = await Analytics.SummariseAsync(new RunQuery { Since = DateTimeOffset.UtcNow.AddDays(-_days) });
+        _agents = await Agents.ListAsync();
+    }
+}

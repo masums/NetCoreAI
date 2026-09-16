@@ -10,7 +10,7 @@ builder.Services.AddNetCoreAIClient(o =>
 });
 ```
 
-That registers `IKnowledgeClient` against the remote host. It is the same interface `AddNetCoreAI()` registers in-process, so moving code between the two is a change of registration and nothing else. `IAgentClient` follows in Phase 3.
+That registers `IKnowledgeClient` and `IAgentClient` against the remote host. They are the same interfaces `AddNetCoreAI()` registers in-process, so moving code between the two is a change of registration and nothing else.
 
 Part of [NetCoreAI](https://github.com/masums/NetCoreAI): turn any existing ASP.NET Core app into an AI-enabled application (local models, RAG, tools and agents) with two lines of code.
 

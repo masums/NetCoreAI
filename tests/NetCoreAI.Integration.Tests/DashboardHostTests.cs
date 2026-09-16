@@ -90,6 +90,23 @@ public sealed class DashboardHostTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Health_never_reports_where_the_data_directory_is()
+    {
+        var body = await _client.GetStringAsync("/netcoreai/health");
+
+        // This endpoint is anonymous, because a load balancer probes it before anyone has signed in. An
+        // absolute filesystem path handed to an unauthenticated caller gives away the account name, the
+        // deployment layout and where the database sits. Free space is the health signal; the path it was
+        // measured on is not part of it.
+        Assert.DoesNotContain("dataDirectory", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(_dataDir, body, StringComparison.OrdinalIgnoreCase);
+
+        // The disk check itself still runs — removing the path must not remove the signal.
+        var json = JsonSerializer.Deserialize<JsonElement>(body);
+        Assert.True(json.GetProperty("freeDiskBytes").GetInt64() > 0);
+    }
+
+    [Fact]
     public async Task Providers_endpoint_lists_the_three_remote_backends_with_presets()
     {
         var providers = await _client.GetFromJsonAsync<JsonElement>("/netcoreai/api/providers");

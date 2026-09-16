@@ -24,6 +24,33 @@ public sealed class NetCoreAIOptions
     public ProvidersOptions Providers { get; set; } = new();
 
     public TelemetryOptions Telemetry { get; set; } = new();
+
+    /// <summary>
+    /// Default rules for every agent that does not carry its own. Nothing is switched on here: a
+    /// guardrail that fires when nobody asked for it turns a working agent into a broken one.
+    /// </summary>
+    public NetCoreAI.Guardrails.GuardrailPolicy Guardrails { get; set; } = new();
+
+    public StorageOptions Storage { get; set; } = new();
+
+    public NetCoreAI.Security.AuditOptions Audit { get; set; } = new();
+
+    public NetCoreAI.Tenancy.TenancyOptions Tenancy { get; set; } = new();
+
+    public NetCoreAI.Alerts.AlertOptions Alerts { get; set; } = new();
+}
+
+/// <summary>What is kept, and for how long.</summary>
+public sealed class StorageOptions
+{
+    /// <summary>
+    /// Days a run trace is kept. 0 keeps them forever.
+    /// </summary>
+    /// <remarks>
+    /// Traces carry whatever people asked an agent, which is both the reason to keep them — a wrong answer
+    /// cannot be explained without one — and the reason not to keep them indefinitely.
+    /// </remarks>
+    public int RunRetentionDays { get; set; } = 90;
 }
 
 public sealed class DashboardOptions

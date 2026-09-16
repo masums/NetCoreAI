@@ -138,11 +138,84 @@ public static class NetCoreAIServiceCollectionExtensions
 
         // Named, so a host can give tool traffic its own handlers — a proxy, a client certificate, a
         // retry policy — without touching the clients the model providers use.
-        services.AddHttpClient(NetCoreAI.Tools.ToolInvoker.HttpClientName);
+        // A tool is a URL a model can reach, which makes it a way out of the process like any other.
+        services.AddHttpClient(NetCoreAI.Tools.ToolInvoker.HttpClientName)
+            .EnforceOfflineMode();
 
         // Live traffic for the overview page, and per-call cost from connection pricing.
         services.TryAddSingleton<IUsageTracker, UsageTracker>();
         services.TryAddSingleton<ICostEstimator, CostEstimator>();
+        services.TryAddSingleton<IUsageAnalytics, UsageAnalytics>();
+        services.TryAddSingleton<NetCoreAI.Storage.IBundleService, NetCoreAI.Storage.BundleService>();
+        services.TryAddSingleton<NetCoreAI.Knowledge.IKnowledgeEvaluator, NetCoreAI.Knowledge.KnowledgeEvaluator>();
+        services.TryAddSingleton<NetCoreAI.Knowledge.IVectorStoreMigrator, NetCoreAI.Knowledge.VectorStoreMigrator>();
+        services.TryAddSingleton<NetCoreAI.Knowledge.IAttachmentReader, NetCoreAI.Knowledge.AttachmentReader>();
+
+        // Guardrails. The ledger is a singleton because a budget shared between two instances of it is no
+        // budget at all.
+        services.TryAddSingleton<NetCoreAI.Guardrails.IBudgetLedger, NetCoreAI.Guardrails.BudgetLedger>();
+        services.TryAddSingleton<NetCoreAI.Guardrails.IGuardrailService, NetCoreAI.Guardrails.GuardrailService>();
+
+        // Tenancy. Always registered, always one tenant until a host says otherwise: the metadata store
+        // reads the current tenant on every call, so there is no "tenancy off" branch in it to get wrong.
+        services.TryAddSingleton<NetCoreAI.Tenancy.ITenantAccessor, NetCoreAI.Tenancy.TenantAccessor>();
+        services.TryAddSingleton<NetCoreAI.Tenancy.ITenantService, NetCoreAI.Tenancy.TenantService>();
+        services.TryAddSingleton<NetCoreAI.Tenancy.ITenantQuotas, NetCoreAI.Tenancy.TenantQuotas>();
+        services.TryAddEnumerable(
+        [
+            ServiceDescriptor.Singleton<NetCoreAI.Tenancy.ITenantResolver, NetCoreAI.Tenancy.ClaimTenantResolver>(),
+            ServiceDescriptor.Singleton<NetCoreAI.Tenancy.ITenantResolver, NetCoreAI.Tenancy.SubdomainTenantResolver>(),
+            ServiceDescriptor.Singleton<NetCoreAI.Tenancy.ITenantResolver, NetCoreAI.Tenancy.HeaderTenantResolver>(),
+        ]);
+        services.AddOptions<NetCoreAI.Tenancy.TenancyOptions>()
+            .Configure<IOptions<NetCoreAIOptions>>((tenancy, root) =>
+            {
+                tenancy.Enabled = root.Value.Tenancy.Enabled;
+                tenancy.ClaimType = root.Value.Tenancy.ClaimType;
+                tenancy.Header = root.Value.Tenancy.Header;
+                tenancy.FromSubdomain = root.Value.Tenancy.FromSubdomain;
+                tenancy.CreateOnFirstUse = root.Value.Tenancy.CreateOnFirstUse;
+                foreach (var host in root.Value.Tenancy.IgnoredHosts)
+                {
+                    if (!tenancy.IgnoredHosts.Contains(host))
+                    {
+                        tenancy.IgnoredHosts.Add(host);
+                    }
+                }
+            });
+
+        // Alerts: a log sink everybody gets, a webhook sink that does nothing until a URL is set, and a
+        // monitor watching the three things that go wrong quietly.
+        services.TryAddSingleton<NetCoreAI.Alerts.IAlertService, NetCoreAI.Alerts.AlertService>();
+        services.TryAddEnumerable(
+        [
+            ServiceDescriptor.Singleton<NetCoreAI.Alerts.IAlertSink, NetCoreAI.Alerts.LogAlertSink>(),
+            ServiceDescriptor.Singleton<NetCoreAI.Alerts.IAlertSink, NetCoreAI.Alerts.WebhookAlertSink>(),
+        ]);
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, NetCoreAI.Alerts.AlertMonitor>());
+        services.AddHttpClient(NetCoreAI.Alerts.WebhookAlertSink.HttpClientName).EnforceOfflineMode();
+        services.AddOptions<NetCoreAI.Alerts.AlertOptions>()
+            .Configure<IOptions<NetCoreAIOptions>>((alerts, root) =>
+            {
+                alerts.Enabled = root.Value.Alerts.Enabled;
+                alerts.WebhookUrl = root.Value.Alerts.WebhookUrl;
+                alerts.CheckInterval = root.Value.Alerts.CheckInterval;
+                alerts.ResendAfter = root.Value.Alerts.ResendAfter;
+                alerts.LowDiskBytes = root.Value.Alerts.LowDiskBytes;
+                alerts.ErrorRatePercent = root.Value.Alerts.ErrorRatePercent;
+                alerts.ErrorRateMinimumRuns = root.Value.Alerts.ErrorRateMinimumRuns;
+            });
+
+        // Who changed what, and the sweep that stops the audit and run tables growing forever.
+        services.TryAddSingleton<NetCoreAI.Security.IAuditLog, NetCoreAI.Security.AuditLog>();
+        services.AddOptions<NetCoreAI.Security.AuditOptions>()
+            .Configure<IOptions<NetCoreAIOptions>>((audit, root) =>
+            {
+                audit.Enabled = root.Value.Audit.Enabled;
+                audit.RetentionDays = root.Value.Audit.RetentionDays;
+                audit.IncludeRuns = root.Value.Audit.IncludeRuns;
+            });
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, NetCoreAI.Storage.RetentionService>());
 
         services.TryAddSingleton<IConnectionManager, ConnectionManager>();
         services.TryAddSingleton<SettingsService>();

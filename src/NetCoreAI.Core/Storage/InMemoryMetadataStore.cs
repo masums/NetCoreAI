@@ -6,52 +6,106 @@ namespace NetCoreAI.Storage;
 /// Non-persistent store used by tests and as the fallback when no storage package is registered
 /// (a warning is logged in that case; nothing survives a restart).
 /// </summary>
-public sealed class InMemoryMetadataStore : IMetadataStore
+public sealed class InMemoryMetadataStore(NetCoreAI.Tenancy.ITenantAccessor? tenants = null) : IMetadataStore
 {
-    private readonly ConcurrentDictionary<string, ModelDescriptor> _models = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, ModelAlias> _aliases = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, ProviderConnection> _connections = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, ChatSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, List<ChatMessageRecord>> _messages = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// One set of dictionaries per tenant.
+    /// </summary>
+    /// <remarks>
+    /// A partition rather than a tenant column, because these stores answer <c>ListAsync</c> from
+    /// <c>Values</c> and a column would need every one of them to remember to filter. Isolation that
+    /// depends on fourteen classes remembering is isolation that will be wrong once.
+    /// </remarks>
+    private readonly ConcurrentDictionary<string, Partition> _tenants = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Settings are host-wide, not a tenant's.
+    /// </summary>
+    /// <remarks>
+    /// The tenant list itself lives in settings, so a per-tenant settings store would make the list of
+    /// tenants something each tenant kept privately — which is the one arrangement that cannot work.
+    /// </remarks>
     private readonly ConcurrentDictionary<string, string> _settings = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, DownloadJob> _downloads = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, KnowledgeBase> _knowledgeBases = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, DataSourceDefinition> _dataSources = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, KnowledgeDocument> _documents = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, JobRecord> _jobs = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, ToolDefinition> _tools = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, AgentDefinition> _agents = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, RunTrace> _runs = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, ApiKey> _apiKeys = new(StringComparer.OrdinalIgnoreCase);
 
-    public InMemoryMetadataStore()
+    private Partition Current => _tenants.GetOrAdd(
+        tenants?.Current ?? NetCoreAI.Tenancy.TenantId.Default,
+        _ => new Partition());
+
+    public IModelStore Models => Current.Models;
+    public IAliasStore Aliases => Current.Aliases;
+    public IProviderConnectionStore Connections => Current.Connections;
+    public IChatSessionStore Sessions => Current.Sessions;
+    public ISettingsStore Settings => field ??= new SettingsStore(_settings);
+    public IDownloadStore Downloads => Current.Downloads;
+    public IKnowledgeStore Knowledge => Current.Knowledge;
+    public IJobStore Jobs => Current.Jobs;
+    public IToolStore Tools => Current.Tools;
+    public IAgentStore Agents => Current.Agents;
+    public IRunStore Runs => Current.Runs;
+    public IApiKeyStore ApiKeys => Current.ApiKeys;
+    public IAuditStore Audit => Current.Audit;
+    public IAgentVersionStore AgentVersions => Current.AgentVersions;
+    public IToolGroupStore ToolGroups => Current.ToolGroups;
+    public IEvaluationStore Evaluations => Current.Evaluations;
+
+    /// <summary>Everything one tenant owns.</summary>
+    private sealed class Partition
     {
-        Models = new ModelStore(_models);
-        Aliases = new AliasStore(_aliases);
-        Connections = new ConnectionStore(_connections);
-        Sessions = new SessionStore(_sessions, _messages);
-        Settings = new SettingsStore(_settings);
-        Downloads = new DownloadStore(_downloads);
-        Knowledge = new KnowledgeStore(_knowledgeBases, _dataSources, _documents);
-        Jobs = new JobStore(_jobs);
-        Tools = new ToolStore(_tools);
-        Agents = new AgentStore(_agents);
-        Runs = new RunStore(_runs);
-        ApiKeys = new ApiKeyStore(_apiKeys);
-    }
+        private readonly ConcurrentDictionary<string, ModelDescriptor> _models = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, ModelAlias> _aliases = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, ProviderConnection> _connections = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, ChatSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, List<ChatMessageRecord>> _messages = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, DownloadJob> _downloads = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, KnowledgeBase> _knowledgeBases = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, DataSourceDefinition> _dataSources = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, KnowledgeDocument> _documents = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, JobRecord> _jobs = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, ToolDefinition> _tools = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, AgentDefinition> _agents = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, RunTrace> _runs = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, ApiKey> _apiKeys = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, NetCoreAI.Security.AuditEntry> _audit = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, AgentVersion> _agentVersions = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, ToolGroup> _toolGroups = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, NetCoreAI.Knowledge.EvaluationSet> _evalSets = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, NetCoreAI.Knowledge.EvaluationRun> _evalRuns = new(StringComparer.OrdinalIgnoreCase);
 
-    public IModelStore Models { get; }
-    public IAliasStore Aliases { get; }
-    public IProviderConnectionStore Connections { get; }
-    public IChatSessionStore Sessions { get; }
-    public ISettingsStore Settings { get; }
-    public IDownloadStore Downloads { get; }
-    public IKnowledgeStore Knowledge { get; }
-    public IJobStore Jobs { get; }
-    public IToolStore Tools { get; }
-    public IAgentStore Agents { get; }
-    public IRunStore Runs { get; }
-    public IApiKeyStore ApiKeys { get; }
+        public Partition()
+        {
+            Models = new ModelStore(_models);
+            Aliases = new AliasStore(_aliases);
+            Connections = new ConnectionStore(_connections);
+            Sessions = new SessionStore(_sessions, _messages);
+            Downloads = new DownloadStore(_downloads);
+            Knowledge = new KnowledgeStore(_knowledgeBases, _dataSources, _documents);
+            Jobs = new JobStore(_jobs);
+            Tools = new ToolStore(_tools);
+            Agents = new AgentStore(_agents);
+            Runs = new RunStore(_runs);
+            ApiKeys = new ApiKeyStore(_apiKeys);
+            Audit = new AuditStore(_audit);
+            AgentVersions = new AgentVersionStore(_agentVersions);
+            ToolGroups = new ToolGroupStore(_toolGroups);
+            Evaluations = new EvaluationStore(_evalSets, _evalRuns);
+        }
+
+        public IModelStore Models { get; }
+        public IAliasStore Aliases { get; }
+        public IProviderConnectionStore Connections { get; }
+        public IChatSessionStore Sessions { get; }
+        public IDownloadStore Downloads { get; }
+        public IKnowledgeStore Knowledge { get; }
+        public IJobStore Jobs { get; }
+        public IToolStore Tools { get; }
+        public IAgentStore Agents { get; }
+        public IRunStore Runs { get; }
+        public IApiKeyStore ApiKeys { get; }
+        public IAuditStore Audit { get; }
+        public IAgentVersionStore AgentVersions { get; }
+        public IToolGroupStore ToolGroups { get; }
+        public IEvaluationStore Evaluations { get; }
+    }
 
     public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
@@ -84,9 +138,173 @@ public sealed class InMemoryMetadataStore : IMetadataStore
                 .ToList());
         public Task<RunTrace?> GetAsync(string id, CancellationToken ct = default) => Task.FromResult(d.GetValueOrDefault(id));
         public Task UpsertAsync(RunTrace run, CancellationToken ct = default) { d[run.Id] = run; return Task.CompletedTask; }
+
+        public Task<IReadOnlyList<RunTrace>> QueryAsync(RunQuery query, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<RunTrace>>([.. Match(query)
+                .OrderByDescending(r => r.StartedAt)
+                .Skip(Math.Max(0, query.Offset))
+                .Take(Math.Clamp(query.Limit, 1, 500))]);
+
+        public Task<int> CountAsync(RunQuery query, CancellationToken ct = default) =>
+            Task.FromResult(Match(query).Count());
+
+        public Task<UsageSummary> SummariseAsync(RunQuery query, CancellationToken ct = default)
+        {
+            var runs = Match(query).ToList();
+            var elapsed = runs.Select(r => r.ElapsedMs).Order().ToList();
+
+            return Task.FromResult(new UsageSummary(runs.Count, runs.Count(r => !r.Success))
+            {
+                InputTokens = runs.Sum(r => (long?)r.InputTokens ?? 0),
+                OutputTokens = runs.Sum(r => (long?)r.OutputTokens ?? 0),
+                Cost = runs.Sum(r => r.EstimatedCost ?? 0),
+                MedianElapsedMs = elapsed.Count == 0 ? 0 : elapsed[elapsed.Count / 2],
+                Unmeasured = runs.Count(r => r.InputTokens is null && r.OutputTokens is null),
+                ByAgent = Group(runs, r => r.AgentId),
+                ByModel = Group(runs, r => r.ModelId ?? "(not recorded)"),
+                ByUser = Group(runs, r => r.UserId ?? "(not signed in)"),
+                ByDay = Group(runs, r => r.StartedAt.UtcDateTime.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)),
+            });
+        }
+
+        private IEnumerable<RunTrace> Match(RunQuery query) =>
+            d.Values
+                .Where(r => query.AgentId is not { Length: > 0 } || r.AgentId == query.AgentId)
+                .Where(r => query.ModelId is not { Length: > 0 } || r.ModelId == query.ModelId)
+                .Where(r => query.UserId is not { Length: > 0 } || r.UserId == query.UserId)
+                .Where(r => query.Success is not { } success || r.Success == success)
+                .Where(r => query.Since is not { } since || r.StartedAt >= since)
+                .Where(r => query.Until is not { } until || r.StartedAt <= until)
+                .Where(r => query.Search is not { Length: > 0 } search
+                    || (r.Input?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || (r.Output?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false));
+
+        private static List<UsageBreakdown> Group(List<RunTrace> runs, Func<RunTrace, string> key) =>
+            [.. runs.GroupBy(key)
+                .Select(g => new UsageBreakdown(g.Key, g.Count())
+                {
+                    Tokens = g.Sum(r => (long?)r.InputTokens ?? 0) + g.Sum(r => (long?)r.OutputTokens ?? 0),
+                    Cost = g.Sum(r => r.EstimatedCost ?? 0),
+                })
+                .OrderByDescending(b => b.Tokens)
+                .ThenBy(b => b.Key, StringComparer.Ordinal)];
         public Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default)
         {
             var stale = d.Values.Where(r => r.StartedAt < olderThan).Select(r => r.Id).ToList();
+            foreach (var id in stale)
+            {
+                d.TryRemove(id, out _);
+            }
+
+            return Task.FromResult(stale.Count);
+        }
+    }
+
+    private sealed class EvaluationStore(
+        ConcurrentDictionary<string, NetCoreAI.Knowledge.EvaluationSet> sets,
+        ConcurrentDictionary<string, NetCoreAI.Knowledge.EvaluationRun> runs) : IEvaluationStore
+    {
+        public Task<IReadOnlyList<NetCoreAI.Knowledge.EvaluationSet>> ListSetsAsync(string? knowledgeBaseId = null, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<NetCoreAI.Knowledge.EvaluationSet>>([.. sets.Values
+                .Where(s => knowledgeBaseId is not { Length: > 0 } || s.KnowledgeBaseId == knowledgeBaseId)
+                .OrderBy(s => s.Name, StringComparer.Ordinal)]);
+
+        public Task<NetCoreAI.Knowledge.EvaluationSet?> GetSetAsync(string id, CancellationToken ct = default) =>
+            Task.FromResult(sets.GetValueOrDefault(id));
+
+        public Task UpsertSetAsync(NetCoreAI.Knowledge.EvaluationSet set, CancellationToken ct = default)
+        {
+            sets[set.Id] = set;
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteSetAsync(string id, CancellationToken ct = default)
+        {
+            sets.TryRemove(id, out _);
+            foreach (var key in runs.Where(r => r.Value.SetId == id).Select(r => r.Key).ToList())
+            {
+                runs.TryRemove(key, out _);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<NetCoreAI.Knowledge.EvaluationRun>> ListRunsAsync(string setId, int limit = 50, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<NetCoreAI.Knowledge.EvaluationRun>>([.. runs.Values
+                .Where(r => r.SetId == setId)
+                .OrderByDescending(r => r.RanAt)
+                .Take(Math.Clamp(limit, 1, 200))]);
+
+        public Task AddRunAsync(NetCoreAI.Knowledge.EvaluationRun run, CancellationToken ct = default)
+        {
+            runs[run.Id] = run;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ToolGroupStore(ConcurrentDictionary<string, ToolGroup> d) : IToolGroupStore
+    {
+        public Task<IReadOnlyList<ToolGroup>> ListAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<ToolGroup>>([.. d.Values.OrderBy(g => g.Name, StringComparer.Ordinal)]);
+
+        public Task<ToolGroup?> GetAsync(string id, CancellationToken ct = default) => Task.FromResult(d.GetValueOrDefault(id));
+
+        public Task UpsertAsync(ToolGroup group, CancellationToken ct = default) { d[group.Id] = group; return Task.CompletedTask; }
+
+        public Task DeleteAsync(string id, CancellationToken ct = default) { d.TryRemove(id, out _); return Task.CompletedTask; }
+    }
+
+    private sealed class AgentVersionStore(ConcurrentDictionary<string, AgentVersion> d) : IAgentVersionStore
+    {
+        private static string Key(string agentId, int version) => $"{agentId}{version}";
+
+        public Task<IReadOnlyList<AgentVersion>> ListAsync(string agentId, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<AgentVersion>>([.. d.Values
+                .Where(v => string.Equals(v.AgentId, agentId, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(v => v.Version)]);
+
+        public Task<AgentVersion?> GetAsync(string agentId, int version, CancellationToken ct = default) =>
+            Task.FromResult(d.GetValueOrDefault(Key(agentId, version)));
+
+        public Task AddAsync(AgentVersion version, CancellationToken ct = default)
+        {
+            d[Key(version.AgentId, version.Version)] = version;
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteAllAsync(string agentId, CancellationToken ct = default)
+        {
+            foreach (var key in d.Where(kv => string.Equals(kv.Value.AgentId, agentId, StringComparison.OrdinalIgnoreCase)).Select(kv => kv.Key).ToList())
+            {
+                d.TryRemove(key, out _);
+            }
+
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class AuditStore(ConcurrentDictionary<string, NetCoreAI.Security.AuditEntry> d) : IAuditStore
+    {
+        public Task<IReadOnlyList<NetCoreAI.Security.AuditEntry>> ListAsync(NetCoreAI.Security.AuditFilter filter, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<NetCoreAI.Security.AuditEntry>>(d.Values
+                .Where(a => filter.EntityType is not { Length: > 0 } || a.EntityType == filter.EntityType)
+                .Where(a => filter.EntityId is not { Length: > 0 } || a.EntityId == filter.EntityId)
+                .Where(a => filter.ActorId is not { Length: > 0 } || a.ActorId == filter.ActorId)
+                .Where(a => filter.Action is not { Length: > 0 } || a.Action == filter.Action)
+                .Where(a => filter.Since is not { } since || a.At >= since)
+                .OrderByDescending(a => a.At)
+                .Take(Math.Clamp(filter.Limit, 1, 1000))
+                .ToList());
+
+        public Task WriteAsync(NetCoreAI.Security.AuditEntry entry, CancellationToken ct = default)
+        {
+            d[entry.Id] = entry;
+            return Task.CompletedTask;
+        }
+
+        public Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct = default)
+        {
+            var stale = d.Values.Where(a => a.At < olderThan).Select(a => a.Id).ToList();
             foreach (var id in stale)
             {
                 d.TryRemove(id, out _);

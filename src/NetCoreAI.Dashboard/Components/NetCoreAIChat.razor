@@ -1,0 +1,29 @@
+@* The widget, as a Razor component, for a host that would rather write a tag than a script element. *@
+
+<script src="@Src" data-agent="@AgentId" data-title="@Title" data-greeting="@Greeting" data-placement="@Placement" defer></script>
+
+@code {
+    /// <summary>The agent to talk to. Required.</summary>
+    [Parameter, EditorRequired] public string AgentId { get; set; } = default!;
+
+    /// <summary>
+    /// Where NetCoreAI is mounted in this host.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to the standard path rather than being read from options, so this component can be used
+    /// from a project that references the dashboard package without wiring anything up. A host that moved
+    /// the path sets it here.
+    /// </remarks>
+    [Parameter] public string Path { get; set; } = "/netcoreai";
+
+    /// <summary>Wording on the button and the panel header.</summary>
+    [Parameter] public string Title { get; set; } = "Ask a question";
+
+    /// <summary>The first thing the panel says, before anybody has asked anything.</summary>
+    [Parameter] public string Greeting { get; set; } = "Ask me anything.";
+
+    /// <summary>"right" (default) or "left".</summary>
+    [Parameter] public string Placement { get; set; } = "right";
+
+    private string Src => $"{Path.TrimEnd('/')}/_content/widget.js";
+}

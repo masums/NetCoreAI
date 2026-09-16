@@ -78,12 +78,25 @@ internal static class AgentsApi
             return Results.Empty;
         }).WithName("NetCoreAI.Agents.RunStream");
 
+        // Publishing freezes the agent as it is now. Until the first publish, the draft is what runs.
+        agents.MapPost("/{id}/publish", async (string id, PublishInput? input, IAgentService service, CancellationToken ct) =>
+            Results.Ok(await service.PublishAsync(id, input?.Note, ct))).WithName("NetCoreAI.Agents.Publish");
+
+        agents.MapPost("/{id}/rollback/{version:int}", async (string id, int version, PublishInput? input, IAgentService service, CancellationToken ct) =>
+            Results.Ok(await service.RollbackAsync(id, version, input?.Note, ct))).WithName("NetCoreAI.Agents.Rollback");
+
+        agents.MapGet("/{id}/versions", async (string id, IAgentService service, CancellationToken ct) =>
+            Results.Ok(await service.ListVersionsAsync(id, ct))).WithName("NetCoreAI.Agents.Versions");
+
         agents.MapGet("/{id}/runs", async (string id, IAgentService service, int limit = 50, CancellationToken ct = default) =>
             Results.Ok(await service.ListRunsAsync(id, limit, ct))).WithName("NetCoreAI.Agents.Runs");
 
         api.MapGet("/runs/{runId}", async (string runId, IAgentService service, CancellationToken ct) =>
             await service.GetRunAsync(runId, ct) is { } run ? Results.Ok(run) : Results.NotFound()).WithName("NetCoreAI.Runs.Get");
     }
+
+    /// <summary>A note to go with a publish or a rollback, as a body so it can be omitted.</summary>
+    public sealed record PublishInput(string? Note);
 
     /// <summary>
     /// Whether an API key scoped to particular agents may run this one.

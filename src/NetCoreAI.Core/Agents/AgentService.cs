@@ -23,6 +23,27 @@ public interface IAgentService
 
     IAsyncEnumerable<AgentEvent> RunStreamingAsync(string agentId, AgentRequest request, AgentCaller caller, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Freezes the agent as it is now, and serves that from here on.
+    /// </summary>
+    /// <remarks>
+    /// The first publish is the moment an agent stops running as it is edited. There is no way back to
+    /// that, deliberately: an agent that sometimes serves its draft and sometimes does not would be worse
+    /// than either rule on its own.
+    /// </remarks>
+    Task<AgentVersion> PublishAsync(string agentId, string? note = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Publishes an earlier version again, as a new one.</summary>
+    Task<AgentVersion> RollbackAsync(string agentId, int toVersion, string? note = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Every published version of an agent, newest first.</summary>
+    Task<IReadOnlyList<AgentVersion>> ListVersionsAsync(string agentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The definition that would actually run: the published version when there is one, else the draft.
+    /// </summary>
+    Task<AgentDefinition?> GetForRunAsync(string agentId, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<RunTrace>> ListRunsAsync(string? agentId = null, int limit = 50, CancellationToken cancellationToken = default);
 
     Task<RunTrace?> GetRunAsync(string id, CancellationToken cancellationToken = default);
@@ -55,6 +76,12 @@ internal sealed partial class AgentService(
     IAgentEngine engine,
     IModelRegistry registry,
     NetCoreAI.Telemetry.ICostEstimator costs,
+    NetCoreAI.Guardrails.IGuardrailService guardrails,
+    NetCoreAI.Security.IAuditLog audit,
+    NetCoreAI.Tenancy.ITenantQuotas quotas,
+    NetCoreAI.Tenancy.ITenantAccessor tenants,
+    IServiceProvider users,
+    Microsoft.Extensions.Options.IOptions<NetCoreAIOptions> options,
     ILogger<AgentService> logger) : IAgentService
 {
     [GeneratedRegex("^[a-zA-Z][a-zA-Z0-9._-]{0,63}$")]
@@ -96,14 +123,138 @@ internal sealed partial class AgentService(
             }
         }
 
-        var saved = agent with { UpdatedAt = DateTimeOffset.UtcNow };
+        var previous = await store.Agents.GetAsync(agent.Id, cancellationToken).ConfigureAwait(false);
+        var existed = previous is not null;
+
+        // The published pointer is not the editor's to set. Taking it from the request would mean every
+        // save of a draft silently unpublished the agent — which is the opposite of what publishing is
+        // for, and would look like the change going live.
+        var saved = agent with { UpdatedAt = DateTimeOffset.UtcNow, PublishedVersion = previous?.PublishedVersion };
+        if (!existed)
+        {
+            // Only a new one counts. Editing the agent that took a tenant to its limit must keep working,
+            // or the limit becomes a trap rather than a ceiling.
+            await quotas.EnsureRoomForAsync(NetCoreAI.Tenancy.QuotaKind.Agent, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+
         await store.Agents.UpsertAsync(saved, cancellationToken).ConfigureAwait(false);
         logger.LogInformation("Saved agent {Name} ({Id}).", saved.Name, saved.Id);
+
+        await audit.WriteAsync(
+            existed ? NetCoreAI.Security.AuditAction.Updated : NetCoreAI.Security.AuditAction.Created,
+            NetCoreAI.Security.AuditEntity.Agent,
+            saved.Id,
+            saved.Name,
+
+            // What it can reach, which is the part of an agent worth reviewing afterwards.
+            $"model {saved.Model}, {saved.ToolIds.Count} tool(s), {saved.Knowledge.Count} knowledge base(s)",
+            cancellationToken).ConfigureAwait(false);
+
         return saved;
     }
 
-    public Task DeleteAsync(string id, CancellationToken cancellationToken = default) =>
-        store.Agents.DeleteAsync(id, cancellationToken);
+    public async Task DeleteAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var agent = await store.Agents.GetAsync(id, cancellationToken).ConfigureAwait(false);
+        await store.Agents.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
+
+        // The history goes with the agent. Keeping versions of something that no longer exists would let
+        // a new agent reusing the id inherit a stranger's past.
+        await store.AgentVersions.DeleteAllAsync(id, cancellationToken).ConfigureAwait(false);
+        await audit.WriteAsync(NetCoreAI.Security.AuditAction.Deleted, NetCoreAI.Security.AuditEntity.Agent, id, agent?.Name, cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<AgentVersion> PublishAsync(string agentId, string? note = null, CancellationToken cancellationToken = default)
+    {
+        var draft = await store.Agents.GetAsync(agentId, cancellationToken).ConfigureAwait(false)
+            ?? throw new NetCoreAIException($"No agent with id '{agentId}'.");
+
+        return await PublishCoreAsync(draft, note, rolledBackFrom: null, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<AgentVersion> RollbackAsync(string agentId, int toVersion, string? note = null, CancellationToken cancellationToken = default)
+    {
+        var previous = await store.AgentVersions.GetAsync(agentId, toVersion, cancellationToken).ConfigureAwait(false)
+            ?? throw new NetCoreAIException($"Agent '{agentId}' has no version {toVersion}.");
+
+        // Published forward as a new version rather than by deleting the ones after it. The history is a
+        // record of what happened, not of what somebody would now prefer to have happened — and the
+        // rollback itself is a thing that happened.
+        var restored = await PublishCoreAsync(previous.Definition, note ?? $"Rolled back to version {toVersion}.", toVersion, cancellationToken)
+            .ConfigureAwait(false);
+
+        // The draft follows, so the editor shows what is now serving rather than the change that was
+        // rolled back — which is the state somebody reaching for rollback wants to be in.
+        await store.Agents.UpsertAsync(
+            previous.Definition with { PublishedVersion = restored.Version, UpdatedAt = DateTimeOffset.UtcNow },
+            cancellationToken).ConfigureAwait(false);
+
+        return restored;
+    }
+
+    public Task<IReadOnlyList<AgentVersion>> ListVersionsAsync(string agentId, CancellationToken cancellationToken = default) =>
+        store.AgentVersions.ListAsync(agentId, cancellationToken);
+
+    public async Task<AgentDefinition?> GetForRunAsync(string agentId, CancellationToken cancellationToken = default)
+    {
+        var agent = await store.Agents.GetAsync(agentId, cancellationToken).ConfigureAwait(false);
+        if (agent?.PublishedVersion is not { } published)
+        {
+            // Never published, so the draft is what runs — which is what every agent did before versioning
+            // existed, and what a draft should do.
+            return agent;
+        }
+
+        var version = await store.AgentVersions.GetAsync(agentId, published, cancellationToken).ConfigureAwait(false);
+        if (version is null)
+        {
+            // The agent says it has a published version and the history does not have it. Refusing beats
+            // silently serving the draft, which is the one thing publishing promised would not happen.
+            throw new NetCoreAIException(
+                $"Agent '{agentId}' is published at version {published}, but that version is missing from its history. Publish again to fix it.");
+        }
+
+        // Enabled comes from the draft on purpose: switching an agent off is an operational act, and
+        // having to publish to stop something is the wrong way round in an incident.
+        return version.Definition with { Enabled = agent.Enabled, PublishedVersion = published };
+    }
+
+    private async Task<AgentVersion> PublishCoreAsync(AgentDefinition definition, string? note, int? rolledBackFrom, CancellationToken cancellationToken)
+    {
+        var existing = await store.AgentVersions.ListAsync(definition.Id, cancellationToken).ConfigureAwait(false);
+        var next = existing.Count == 0 ? 1 : existing.Max(v => v.Version) + 1;
+
+        var version = new AgentVersion
+        {
+            AgentId = definition.Id,
+            Version = next,
+
+            // The version number is inside the snapshot too, so a definition read back from history knows
+            // which version it is without being told.
+            Definition = definition with { PublishedVersion = next },
+            Note = note,
+            RolledBackFrom = rolledBackFrom,
+            PublishedBy = NetCoreAI.Security.AuditLog.Actor((users.GetService(typeof(Microsoft.AspNetCore.Http.IHttpContextAccessor)) as Microsoft.AspNetCore.Http.IHttpContextAccessor)?.HttpContext?.User).Name,
+        };
+
+        await store.AgentVersions.AddAsync(version, cancellationToken).ConfigureAwait(false);
+        await store.Agents.UpsertAsync(
+            (await store.Agents.GetAsync(definition.Id, cancellationToken).ConfigureAwait(false) ?? definition)
+                with { PublishedVersion = next },
+            cancellationToken).ConfigureAwait(false);
+
+        logger.LogInformation("Published agent {Agent} as version {Version}.", definition.Id, next);
+
+        await audit.WriteAsync(
+            NetCoreAI.Security.AuditAction.Updated,
+            NetCoreAI.Security.AuditEntity.Agent,
+            definition.Id,
+            definition.Name,
+            rolledBackFrom is { } from ? $"rolled back to version {from}, published as {next}" : $"published version {next}",
+            cancellationToken).ConfigureAwait(false);
+
+        return version;
+    }
 
     public Task<IReadOnlyList<RunTrace>> ListRunsAsync(string? agentId = null, int limit = 50, CancellationToken cancellationToken = default) =>
         store.Runs.ListAsync(agentId, limit, cancellationToken);
@@ -138,7 +289,25 @@ internal sealed partial class AgentService(
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(caller);
 
-        var agent = await store.Agents.GetAsync(agentId, cancellationToken).ConfigureAwait(false);
+        // The published version when there is one. An edit somebody is still working on must not reach
+        // the people using the agent.
+        AgentDefinition? agent = null;
+        string? resolveError = null;
+        try
+        {
+            agent = await GetForRunAsync(agentId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (NetCoreAIException ex)
+        {
+            resolveError = ex.Message;
+        }
+
+        if (resolveError is not null)
+        {
+            yield return new AgentEvent(AgentEvent.ErrorType) { Error = resolveError };
+            yield break;
+        }
+
         if (agent is null)
         {
             yield return new AgentEvent(AgentEvent.ErrorType) { Error = $"No agent with id '{agentId}'." };
@@ -197,13 +366,67 @@ internal sealed partial class AgentService(
             AuthorizationHeader = caller.AuthorizationHeader,
         };
 
+        // The agent's own rules, or the host's defaults when it carries none.
+        var policy = agent.Guardrails ?? options.Value.Guardrails;
+
+        if ((guardrails.CheckBudget(policy, agent.Id, request.SessionId, caller.UserId)
+             ?? quotas.CheckDailyBudget()) is { } overspent)
+        {
+            await FailAsync(run, steps, overspent, started, cancellationToken).ConfigureAwait(false);
+            Record(agent, activity, false, (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, overspent);
+            yield return new AgentEvent(AgentEvent.ErrorType) { Error = overspent };
+            yield break;
+        }
+
+        // Checked before retrieval and before any model sees it, which is the last point at which masked
+        // data has not yet left the process.
+        var input = guardrails.CheckInput(policy, request.Message);
+        foreach (var finding in input.Findings)
+        {
+            steps.Add(new RunStep(RunStep.GuardrailKind, finding.Rule)
+            {
+                Output = finding.Detail,
+                Success = finding.Action != NetCoreAI.Guardrails.GuardrailAction.Block,
+            });
+        }
+
+        if (input.Blocked)
+        {
+            // Recorded as a run like any other. A refusal nobody can look up afterwards is a rule nobody
+            // can tune, and the first thing asked about one is always "what did they actually send?".
+            await FailAsync(run, steps, input.BlockedReason!, started, cancellationToken).ConfigureAwait(false);
+            Record(agent, activity, false, (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, input.BlockedReason);
+            NetCoreAI.Telemetry.NetCoreAITelemetry.GuardrailBlocks.Add(1, new System.Diagnostics.TagList { { "agent", agent.Id } });
+
+            // Recorded whatever the audit settings say about runs. A refusal is not a run, it is somebody
+            // being told no, and that is exactly the kind of thing an audit log exists for.
+            await audit.WriteAsync(
+                NetCoreAI.Security.AuditAction.Refused,
+                NetCoreAI.Security.AuditEntity.Agent,
+                agent.Id,
+                agent.Name,
+                string.Join(", ", input.Findings.Select(f => f.Rule).Distinct()),
+                CancellationToken.None).ConfigureAwait(false);
+
+            yield return new AgentEvent(AgentEvent.ErrorType) { Error = input.BlockedReason };
+            yield break;
+        }
+
+        request = request with { Message = input.Text };
+        run = run with { Input = input.Text };
+
+        // Narrowed before the pipeline is built, so a tool this caller's role may not use is never put in
+        // front of the model at all rather than offered and refused on use.
+        var permitted = guardrails.AllowedTools(policy, agent.ToolIds, caller.User);
+        var effective = permitted.Count == agent.ToolIds.Count ? agent : agent with { ToolIds = permitted };
+
         AgentPipeline? pipeline = null;
         List<ChatMessage>? messages = null;
         string? setupError = null;
         try
         {
-            pipeline = await engine.BuildAsync(agent, context, ct).ConfigureAwait(false);
-            messages = await MessagesAsync(agent, request, caller, ct).ConfigureAwait(false);
+            pipeline = await engine.BuildAsync(effective, context, ct).ConfigureAwait(false);
+            messages = await MessagesAsync(effective, request, caller, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -221,6 +444,16 @@ internal sealed partial class AgentService(
             yield break;
         }
 
+        if (policy.Budget.MaxTokensPerRun > 0)
+        {
+            // Applied as a cap on the answer rather than as a check afterwards: a budget only enforced
+            // once the tokens are spent is a report, not a limit.
+            pipeline.Options.MaxOutputTokens = Math.Min(
+                pipeline.Options.MaxOutputTokens ?? int.MaxValue,
+                policy.Budget.MaxTokensPerRun);
+        }
+
+        var outputGuard = new NetCoreAI.Guardrails.StreamingOutputGuard(guardrails, policy);
         var text = new System.Text.StringBuilder();
         var citations = new List<Citation>();
         UsageDetails? usage = null;
@@ -264,9 +497,16 @@ internal sealed partial class AgentService(
                     switch (content)
                     {
                         case TextContent t when !string.IsNullOrEmpty(t.Text):
-                            text.Append(t.Text);
-                            yield return new AgentEvent(AgentEvent.DeltaType) { Text = t.Text };
+                        {
+                            var released = outputGuard.Push(t.Text);
+                            if (released.Length > 0)
+                            {
+                                text.Append(released);
+                                yield return new AgentEvent(AgentEvent.DeltaType) { Text = released };
+                            }
+
                             break;
+                        }
 
                         case UsageContent u:
                             usage = u.Details;
@@ -314,6 +554,18 @@ internal sealed partial class AgentService(
             await enumerator.DisposeAsync().ConfigureAwait(false);
         }
 
+        var tail = outputGuard.Flush();
+        if (tail.Length > 0)
+        {
+            text.Append(tail);
+            yield return new AgentEvent(AgentEvent.DeltaType) { Text = tail };
+        }
+
+        foreach (var finding in outputGuard.Findings)
+        {
+            steps.Add(new RunStep(RunStep.GuardrailKind, finding.Rule) { Output = "in the answer" });
+        }
+
         var elapsed = (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         var answer = text.ToString();
 
@@ -335,6 +587,28 @@ internal sealed partial class AgentService(
         };
 
         await store.Runs.UpsertAsync(finished, CancellationToken.None).ConfigureAwait(false);
+
+        if (options.Value.Audit.IncludeRuns)
+        {
+            await audit.WriteAsync(
+                NetCoreAI.Security.AuditAction.Ran,
+                NetCoreAI.Security.AuditEntity.Agent,
+                agent.Id,
+                agent.Name,
+
+                // The run id rather than the question: the trace already holds what was asked, and copying
+                // it here would put the same conversation in two tables with two retention settings.
+                $"run {finished.Id}",
+                CancellationToken.None).ConfigureAwait(false);
+        }
+
+        guardrails.RecordUsage(
+            agent.Id,
+            request.SessionId,
+            caller.UserId,
+            (finished.InputTokens ?? 0) + (finished.OutputTokens ?? 0),
+            finished.EstimatedCost ?? 0,
+            tenants.Current);
 
         activity?.SetTag("gen_ai.response.model", finished.ModelId);
         activity?.SetTag("gen_ai.usage.input_tokens", finished.InputTokens);
