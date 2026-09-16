@@ -968,6 +968,43 @@
     }
   }
 
+  // Sources under an answer. Shared by the chat playground and the agent playground rather than defined
+  // inside one of them: an agent answering from a knowledge base emits the same citations event, and when
+  // this lived in the chat block the agent run threw "renderCitations is not defined" — inside the stream
+  // loop's try, so the catch replaced the answer with the error and the whole reply was lost.
+  function renderCitations(div, citations) {
+    if (!citations || !citations.length) return;
+    let box = div.querySelector('.citations');
+    if (!box) {
+      box = document.createElement('details');
+      box.className = 'citations';
+      div.appendChild(box);
+    }
+
+    box.innerHTML = `<summary>${citations.length} source${citations.length === 1 ? '' : 's'}</summary>` +
+      citations.map((c) => {
+        const where = c.page ? `page ${c.page}` : (c.section ? esc(c.section) : '');
+        return `<div class="citation"><strong>[${c.ordinal}] ${esc(c.title)}</strong>${where ? ` <span class="muted">${where}</span>` : ''}
+          <div class="muted small">${esc(c.snippet || '')}</div></div>`;
+      }).join('');
+  }
+
+  // Every passage retrieval found, including the ones the answer ignored: the point is to see what the
+  // model was given, so a chunk that should have been retrieved and was not is visible by its absence.
+  // Module scope for the same reason as the citations above, before the same bug happens to it.
+  function renderPassages(div, passages) {
+    if (!passages || !passages.length) return;
+    let box = div.querySelector('.passages');
+    if (!box) { box = document.createElement('details'); box.className = 'passages'; div.appendChild(box); }
+    box.innerHTML = `<summary>Retrieved chunks (${passages.length})</summary>` +
+      passages.map((p) => {
+        const where = p.page ? `page ${p.page}` : (p.section ? esc(p.section) : '');
+        return `<div class="citation"><strong>[${p.ordinal}] ${esc(p.title)}</strong>
+          <span class="muted small">score ${p.score.toFixed(3)}${where ? ` · ${where}` : ''}</span>
+          <pre class="small">${esc(p.text || '')}</pre></div>`;
+      }).join('');
+  }
+
   function renderSteps(div, steps) {
     if (!steps || !steps.length) return;
     let box = div.querySelector('.steps');
@@ -1497,38 +1534,6 @@
         sendBtn.disabled = false; stopBtn.hidden = true; abort = null; textEl.focus();
       }
     }
-    function renderCitations(div, citations) {
-      if (!citations || !citations.length) return;
-      let box = div.querySelector('.citations');
-      if (!box) {
-        box = document.createElement('details');
-        box.className = 'citations';
-        div.appendChild(box);
-      }
-
-      box.innerHTML = `<summary>${citations.length} source${citations.length === 1 ? '' : 's'}</summary>` +
-        citations.map((c) => {
-          const where = c.page ? `page ${c.page}` : (c.section ? esc(c.section) : '');
-          return `<div class="citation"><strong>[${c.ordinal}] ${esc(c.title)}</strong>${where ? ` <span class="muted">${where}</span>` : ''}
-            <div class="muted small">${esc(c.snippet || '')}</div></div>`;
-        }).join('');
-    }
-
-    // Every passage retrieval found, including the ones the answer ignored: the point is to see what the
-    // model was given, so a chunk that should have been retrieved and was not is visible by its absence.
-    function renderPassages(div, passages) {
-      if (!passages || !passages.length) return;
-      let box = div.querySelector('.passages');
-      if (!box) { box = document.createElement('details'); box.className = 'passages'; div.appendChild(box); }
-      box.innerHTML = `<summary>Retrieved chunks (${passages.length})</summary>` +
-        passages.map((p) => {
-          const where = p.page ? `page ${p.page}` : (p.section ? esc(p.section) : '');
-          return `<div class="citation"><strong>[${p.ordinal}] ${esc(p.title)}</strong>
-            <span class="muted small">score ${p.score.toFixed(3)}${where ? ` · ${where}` : ''}</span>
-            <pre class="small">${esc(p.text || '')}</pre></div>`;
-        }).join('');
-    }
-
     // Remembered so a tuning session is not retyped on every reload; per browser, never sent anywhere else.
     for (const el of [$('#r-topk'), $('#r-minscore'), $('#r-debug')].filter(Boolean)) {
       const key = `netcoreai.retrieval.${el.id}`;
