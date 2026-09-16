@@ -81,3 +81,40 @@ public sealed class FakeProvider(string id = "fake", ProviderKind kind = Provide
         public void Dispose() { }
     }
 }
+
+/// <summary>
+/// Recognises the formats a <see cref="FakeProvider"/> claims, by file extension.
+/// </summary>
+/// <remarks>
+/// Every real backend registers a provider and a detector together — <c>AddGgufBackend</c> and
+/// <c>AddOnnxBackend</c> both do — so a host with a provider and no detector is a shape that cannot
+/// occur outside a test. Registering this alongside the fake provider keeps the fixture honest; without
+/// it the storage scan correctly reports that nothing installed can read the file, which is true of the
+/// fixture and never true of a real host.
+/// </remarks>
+public sealed class FakeFormatDetector(params ModelFormat[] formats) : IModelFormatDetector
+{
+    private readonly ModelFormat[] _formats = formats.Length == 0 ? [ModelFormat.Gguf] : formats;
+
+    public DetectedModel? TryDetect(string path)
+    {
+        var extension = Path.GetExtension(path);
+        foreach (var format in _formats)
+        {
+            var matches = format switch
+            {
+                ModelFormat.Gguf => extension.Equals(".gguf", StringComparison.OrdinalIgnoreCase),
+                ModelFormat.Onnx => extension.Equals(".onnx", StringComparison.OrdinalIgnoreCase)
+                    || (Directory.Exists(path) && File.Exists(Path.Combine(path, "genai_config.json"))),
+                _ => false,
+            };
+
+            if (matches)
+            {
+                return new DetectedModel(format, "fake") { Name = Path.GetFileNameWithoutExtension(path) };
+            }
+        }
+
+        return null;
+    }
+}

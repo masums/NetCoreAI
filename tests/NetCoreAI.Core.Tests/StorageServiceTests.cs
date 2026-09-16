@@ -17,7 +17,14 @@ public class StorageServiceTests : IAsyncDisposable
     private async Task<(IStorageService Storage, IModelRegistry Registry)> StartAsync(Action<NetCoreAIOptions>? options = null)
     {
         _host = await TestHost.StartAsync(
-            b => b.Services.AddSingleton<IModelProvider>(new FakeProvider("fake", ProviderKind.Local, ModelFormat.Gguf, ModelFormat.Onnx)),
+            b =>
+            {
+                b.Services.AddSingleton<IModelProvider>(new FakeProvider("fake", ProviderKind.Local, ModelFormat.Gguf, ModelFormat.Onnx));
+
+                // A real backend registers a detector beside its provider; without one the scan would
+                // report, correctly for this fixture and never for a real host, that nothing can read it.
+                b.Services.AddSingleton<IModelFormatDetector>(new FakeFormatDetector(ModelFormat.Gguf, ModelFormat.Onnx));
+            },
             o =>
             {
                 options?.Invoke(o);

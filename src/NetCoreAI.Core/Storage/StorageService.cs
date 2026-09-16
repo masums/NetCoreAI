@@ -66,9 +66,15 @@ public interface IStorageService
 
 internal sealed class StorageService(
     IModelRegistry registry,
+    IEnumerable<IModelFormatDetector> detectors,
     IOptionsMonitor<NetCoreAIOptions> options,
     ILogger<StorageService> logger) : IStorageService
 {
+    private readonly List<IModelFormatDetector> _detectors = [.. detectors];
+
+    /// <summary>Weight files, as opposed to the configuration and vocabulary that sit beside them.</summary>
+    private static readonly string[] WeightExtensions = [".gguf", ".onnx", ".safetensors", ".bin", ".pt", ".pth"];
+
     /// <summary>Subfolders that belong to NetCoreAI itself and are never reported as orphans.</summary>
     private static readonly string[] ReservedFolders = ["vectors", "keys", "uploads", "logs"];
 
@@ -154,7 +160,7 @@ internal sealed class StorageService(
                     info.LastWriteTimeUtc,
                     isPartial
                         ? "An interrupted download. Resume it from the Downloads panel, or delete it to reclaim the space."
-                        : "No registered model claims this file. It is left over from a removed model or a manual copy."));
+                        : Reason(path, modelsRoot)));
             }
             catch (IOException ex)
             {
@@ -163,6 +169,82 @@ internal sealed class StorageService(
         }
 
         return [.. orphans.OrderByDescending(o => o.SizeBytes)];
+    }
+
+    /// <summary>
+    /// Why a file is unclaimed — which is not always "somebody left it behind".
+    /// </summary>
+    /// <remarks>
+    /// A model whose format no installed backend can read is unclaimed for a completely different reason:
+    /// it was downloaded, it is intact, and nothing in the host can open it. Telling somebody that is
+    /// left over from a removed model invites them to delete a model they still want, and the fix is a
+    /// package reference rather than a deletion. Found after an ONNX folder was listed as reclaimable on
+    /// a host with no ONNX backend registered.
+    /// </remarks>
+    private string Reason(string path, string modelsRoot)
+    {
+        var folder = ModelFolder(path, modelsRoot);
+
+        // Recognised by something installed, and still unclaimed: genuinely left behind.
+        if (_detectors.Exists(d => d.TryDetect(path) is not null)
+            || (folder is not null && _detectors.Exists(d => d.TryDetect(folder) is not null)))
+        {
+            return "No registered model claims this file. It is left over from a removed model or a manual copy.";
+        }
+
+        if (HasWeights(path, folder))
+        {
+            return "No installed backend can read this model's format, which is why nothing claims it. "
+                + "Add the matching backend package — NetCoreAI.Backend.Gguf for .gguf files, "
+                + "NetCoreAI.Backend.Onnx for ONNX folders — and import it, rather than deleting it.";
+        }
+
+        return "No registered model claims this file. It is left over from a removed model or a manual copy.";
+    }
+
+    /// <summary>The first folder under <c>models/</c> that <paramref name="path"/> sits in, if any.</summary>
+    /// <remarks>
+    /// A model in a folder is a set of files: weights, a tokenizer, a config. They are unclaimed or
+    /// claimed together, so the reason is worked out for the folder and given to every file in it —
+    /// otherwise the weights would explain themselves and their companions would not.
+    /// </remarks>
+    private static string? ModelFolder(string path, string modelsRoot)
+    {
+        var directory = Path.GetDirectoryName(path);
+        string? candidate = null;
+
+        while (directory is not null
+            && directory.StartsWith(modelsRoot, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(directory.TrimEnd(Path.DirectorySeparatorChar), modelsRoot.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+        {
+            candidate = directory;
+            directory = Path.GetDirectoryName(directory);
+        }
+
+        return candidate;
+    }
+
+    private static bool HasWeights(string path, string? folder)
+    {
+        if (WeightExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (folder is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories)
+                .Any(f => WeightExtensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase));
+        }
+        catch (IOException)
+        {
+            return false;
+        }
     }
 
     public async Task<long> DeleteOrphansAsync(IReadOnlyList<string> paths, CancellationToken cancellationToken = default)

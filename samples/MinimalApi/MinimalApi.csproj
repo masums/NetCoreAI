@@ -8,6 +8,11 @@
          model load fails. Swap the second for LLamaSharp.Backend.Cuda12 or .Vulkan to offload to a GPU. -->
     <PackageReference Include="NetCoreAI.Backend.Gguf" Version="$(NetCoreAIVersion)" />
     <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
+
+    <!-- ONNX models, which arrive as a folder rather than a single file: sentence-transformers embedding
+         models are the common case. Its native runtime ships in the package itself, so unlike the GGUF
+         backend above this one needs no second reference. -->
+    <PackageReference Include="NetCoreAI.Backend.Onnx" Version="$(NetCoreAIVersion)" />
     <PackageReference Include="NetCoreAI.Backend.Ollama" Version="$(NetCoreAIVersion)" />
     <PackageReference Include="NetCoreAI.Backend.OpenAICompatible" Version="$(NetCoreAIVersion)" />
     <PackageReference Include="NetCoreAI.Backend.Anthropic" Version="$(NetCoreAIVersion)" />

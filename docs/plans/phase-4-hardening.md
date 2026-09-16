@@ -171,10 +171,18 @@ no-op fails exactly the two tests for the clients that were missing it.
 ## Release gates for 1.0
 Abstractions API frozen (PublicAPI analyzers), conformance suite public, security review of tool invocation + secrets, load test (100 concurrent sessions on a remote provider), upgrade test from 0.x SQLite schema.
 
-**Upgrading a SQLite database — partly done.** A database written by an older version now gains any table
-and index this version needs, and is refused by name when a table it already has is missing columns. That
-covers what the row design actually produces: a payload of JSON plus the few columns worth filtering on
-means a feature adds a table far more often than it changes one. Adding a *column* to an existing table is
-still not handled, and is what the remaining gate covers — real EF migrations, once the schema is frozen.
-Found by running the sample against a data directory from an earlier build: it died on
-`no such table: Jobs`, at whichever query happened to run first.
+**Upgrading a SQLite database — partly done.** A database written by an older version gains any table and
+index this version needs, and any missing column that can be filled in — one that is nullable or carries a
+default. That covers what the row design actually produces: a payload of JSON plus the few columns worth
+filtering on means a feature adds a table far more often than it changes one. Found by running the sample
+against a data directory from an earlier build: it died on `no such table: Jobs`, at whichever query
+happened to run first.
+
+Two cases are refused rather than guessed at, and they are what the remaining gate covers — real EF
+migrations, once the schema is frozen:
+
+- **A required column with no default.** There is no correct value to write into the existing rows, and
+  inventing one silently is worse than stopping.
+- **A changed primary key**, which SQLite cannot alter at all. Multi-tenancy did exactly this: every table
+  gained `TenantId` in its key. The startup error names each affected table and says to delete the
+  database, because that is the only honest answer available before 1.0.

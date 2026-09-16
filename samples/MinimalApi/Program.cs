@@ -15,6 +15,7 @@ builder.Services.AddNetCoreAI(o =>
 // A local GGUF file needs a backend that can read one. Without this the framework still runs, but
 // importing a .gguf from the Model Hub fails: nothing registered recognises the format.
 .AddGgufBackend()
+.AddOnnxBackend()
 .AddOllamaBackend()
 .AddOpenAICompatibleBackend()
 .AddAnthropicBackend();
