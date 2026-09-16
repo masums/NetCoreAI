@@ -304,10 +304,22 @@ public sealed class GgufModelProvider(IOptionsMonitor<NetCoreAIOptions> netCoreA
         "targets through an intermediate package and that is how these binaries are delivered.";
 
     /// <summary>Turns a native-load failure into <see cref="NativeRuntimeMissing"/>, and leaves anything else alone.</summary>
-    private static NetCoreAIException Describe(Exception ex, string modelName) =>
-        IsNativeLoadFailure(ex)
-            ? new NetCoreAIException(NativeRuntimeMissing, ex)
-            : new NetCoreAIException($"llama.cpp could not load '{modelName}': {ex.Message}", ex);
+    private static NetCoreAIException Describe(Exception ex, string modelName, string? detail = null)
+    {
+        if (IsNativeLoadFailure(ex))
+        {
+            return new NetCoreAIException(NativeRuntimeMissing, ex);
+        }
+
+        // Without the detail this said only that the file would not load, which reads as a fault in the
+        // machine rather than in the file. "missing tensor 'blk.32.ssm_conv1d.weight'" says which, and
+        // says it is the model.
+        var message = detail is { Length: > 0 }
+            ? $"llama.cpp could not load '{modelName}': {detail}. This is a property of the model file, not of this machine — the file is readable and was rejected before any memory was reserved. A quantization of the same model from another publisher, or one built by a newer llama.cpp, usually loads."
+            : $"llama.cpp could not load '{modelName}': {ex.Message}";
+
+        return new NetCoreAIException(message, ex);
+    }
 
     internal static bool IsNativeLoadFailure(Exception ex)
     {
@@ -384,13 +396,17 @@ public sealed class GgufModelProvider(IOptionsMonitor<NetCoreAIOptions> netCoreA
             model.Id, path, parameters.ContextSize, parameters.GpuLayerCount);
 
         LLamaWeights weights;
+
+        // llama.cpp explains itself through its log rather than through the exception, which carries only
+        // the file path. Collect the explanation while the load runs so a failure can repeat it.
+        using var capture = NativeErrorCapture.Begin();
         try
         {
             weights = await LLamaWeights.LoadFromFileAsync(parameters, cancellationToken, progressReporter: null).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException and not NetCoreAIException)
         {
-            throw Describe(ex, model.Name);
+            throw Describe(ex, model.Name, capture?.Detail);
         }
 
         var handle = new GgufLoadedModel(model, weights, parameters, metadata);
